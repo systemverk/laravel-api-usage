@@ -4,6 +4,7 @@ namespace Systemverk\LaravelApiUsage\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Redis\Connections\Connection;
+use Illuminate\Redis\Connections\PhpRedisConnection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
@@ -95,9 +96,18 @@ class FlushApiUsage extends Command
                 return 0;
             }
 
-            // Registered before the rename so that a crash between the two still
-            // leaves a breadcrumb; recovery tolerates entries that never existed.
-            $redis->sadd(BufferKeys::processingRegistry(), [$processingKey]);
+            /**
+             * Registered before the rename so that a crash between the two
+             * still leaves a breadcrumb; recovery tolerates entries that never
+             * existed.
+             *
+             * The member is passed as a plain string. Predis accepts an array
+             * here, but phpredis takes members variadically and casts an array
+             * argument to the literal "Array" — so the registry filled up with
+             * one useless member while every real claimed buffer went
+             * unrecorded and could never be recovered.
+             */
+            $redis->sadd(BufferKeys::processingRegistry(), $processingKey);
 
             if (! $redis->renamenx($key, $processingKey)) {
                 $redis->srem(BufferKeys::processingRegistry(), $processingKey);
@@ -227,15 +237,29 @@ class FlushApiUsage extends Command
 
     private function acquireClaim(Connection $redis, string $processingKey): bool
     {
-        // SET key 1 EX <ttl> NX — a single atomic call, so a crash can never
-        // leave a lock behind that has no expiry.
-        return (bool) $redis->command('set', [
-            BufferKeys::lockFor($processingKey),
-            '1',
-            'EX',
-            self::CLAIM_TTL_SECONDS,
-            'NX',
-        ]);
+        $lockKey = BufferKeys::lockFor($processingKey);
+
+        /**
+         * SET key 1 EX <ttl> NX — a single atomic call, so a crash can never
+         * leave a lock behind that has no expiry.
+         *
+         * The two clients disagree about how to spell that, and the difference
+         * is not cosmetic: phpredis's set() wants the options as an array and
+         * takes at most three arguments, while predis takes them positionally.
+         * Sending the positional form through command(), which forwards
+         * verbatim to the underlying client, raised "Redis::set() expects at
+         * most 3 arguments, 5 given" on every claim — so on the client this
+         * package recommends, nothing was ever flushed.
+         *
+         * PhpRedisConnection::set() exists to translate between the two, so it
+         * is called directly rather than reached through __call. Predis has no
+         * such override and takes the positional form as written.
+         */
+        if ($redis instanceof PhpRedisConnection) {
+            return (bool) $redis->set($lockKey, '1', 'EX', self::CLAIM_TTL_SECONDS, 'NX');
+        }
+
+        return (bool) $redis->command('set', [$lockKey, '1', 'EX', self::CLAIM_TTL_SECONDS, 'NX']);
     }
 
     private function discard(Connection $redis, string $processingKey): void

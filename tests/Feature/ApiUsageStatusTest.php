@@ -37,7 +37,7 @@ class ApiUsageStatusTest extends TestCase
     public function test_it_reports_claimed_buffers_awaiting_recovery(): void
     {
         $redis = $this->fakeRedis();
-        $redis->sadd(BufferKeys::processingRegistry(), ['some-claimed-key']);
+        $redis->sadd(BufferKeys::processingRegistry(), 'some-claimed-key');
 
         $this->artisan('api-usage:status')
             ->expectsOutputToContain('1 claimed buffers')

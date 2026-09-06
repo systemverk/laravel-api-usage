@@ -199,11 +199,55 @@ class FlushApiUsageTest extends TestCase
     public function test_an_expired_orphan_is_cleaned_out_of_the_registry(): void
     {
         $orphan = BufferKeys::currentMinute().':processing:gone';
-        $this->redis->sadd(BufferKeys::processingRegistry(), [$orphan]);
+        $this->redis->sadd(BufferKeys::processingRegistry(), $orphan);
 
         $this->artisan('api-usage:flush')->assertExitCode(0);
 
         $this->assertSame([], $this->redis->smembers(BufferKeys::processingRegistry()));
+    }
+
+    /**
+     * The registry has to hold the key of the buffer that was claimed.
+     *
+     * Passing the member as a single-element array reads fine and works on
+     * predis, but phpredis casts it to the literal string "Array": the registry
+     * then holds one member that resolves to nothing, every genuinely claimed
+     * buffer goes unrecorded, and recovery can never find them again.
+     */
+    public function test_the_processing_registry_holds_the_claimed_buffer_key(): void
+    {
+        Log::shouldReceive('error')->once();
+
+        $this->buffer(BufferKeys::currentMinute(), [$this->entry()]);
+        $this->redis->failOn('lrange', new \RuntimeException('read timeout'));
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $registry = $this->redis->smembers(BufferKeys::processingRegistry());
+
+        $this->assertCount(1, $registry);
+        $this->assertNotSame('Array', $registry[0]);
+        $this->assertStringStartsWith(BufferKeys::currentMinute().':processing:', $registry[0]);
+    }
+
+    /**
+     * The claim is a SET NX carrying an expiry, so a run that dies mid-flush
+     * cannot leave a lock behind that never releases.
+     */
+    public function test_the_claim_lock_is_written_with_an_expiry(): void
+    {
+        Log::shouldReceive('error')->once();
+
+        $this->buffer(BufferKeys::currentMinute(), [$this->entry()]);
+        $this->redis->failOn('lrange', new \RuntimeException('read timeout'));
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $registry = $this->redis->smembers(BufferKeys::processingRegistry());
+        $lockKey = BufferKeys::lockFor($registry[0]);
+
+        $this->assertArrayHasKey($lockKey, $this->redis->store);
+        $this->assertSame(300, $this->redis->ttls[$lockKey] ?? null);
     }
 
     public function test_it_does_nothing_when_the_package_is_disabled(): void

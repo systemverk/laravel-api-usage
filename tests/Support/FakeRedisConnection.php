@@ -47,7 +47,14 @@ class FakeRedisConnection extends Connection
     }
 
     /**
-     * The flush command issues its atomic SET NX through command().
+     * Illuminate's Connection::command() forwards its parameters verbatim to
+     * the underlying client, so this double stands in for a *predis* client:
+     * positional SET options, and members passed one per argument.
+     *
+     * phpredis differs on both counts, which is why the flush command branches
+     * on the connection class rather than trusting __call. Nothing in this file
+     * can prove the phpredis branch — only a real phpredis connection can — so
+     * do not read a green suite here as evidence that both clients work.
      *
      * @param  array<int, mixed>  $parameters
      */
@@ -163,16 +170,21 @@ class FakeRedisConnection extends Connection
     }
 
     /**
-     * @param  array<int, string>|string  $members
+     * Members are variadic strings, matching phpredis.
+     *
+     * Predis also accepts a single array, which made an array argument look
+     * harmless — but phpredis casts one to the literal string "Array", quietly
+     * filling the registry with a member that resolves to nothing. Typing this
+     * strictly turns that into a failing test rather than a silent data loss.
      */
-    public function sadd(string $key, array|string $members): int
+    public function sadd(string $key, string ...$members): int
     {
         $this->guard('sadd');
 
         $set = $this->set_($key);
         $added = 0;
 
-        foreach ((array) $members as $member) {
+        foreach ($members as $member) {
             if (! in_array($member, $set, true)) {
                 $set[] = $member;
                 $added++;

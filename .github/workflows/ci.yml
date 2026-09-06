@@ -39,19 +39,16 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.2', '8.3', '8.4', '8.5']
-        laravel: ['11.*', '12.*', '13.*']
+        laravel: ['12.*', '13.*']
         dependency-version: [prefer-stable]
         exclude:
           # Laravel 13 requires PHP 8.3 or newer.
           - php: '8.2'
             laravel: '13.*'
-          # Laravel 11 predates PHP 8.5 and is not tested against it.
-          - php: '8.5'
-            laravel: '11.*'
         include:
           # Verify the lower bound of the declared version ranges actually works.
           - php: '8.2'
-            laravel: '11.*'
+            laravel: '12.*'
             dependency-version: prefer-lowest
 
     steps:

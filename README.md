@@ -53,7 +53,7 @@ bodies. See [Out of scope](#what-this-package-deliberately-does-not-do).
 | | Supported |
 |---|---|
 | PHP | 8.2, 8.3, 8.4, 8.5 |
-| Laravel | 11.x, 12.x, 13.x |
+| Laravel | 12.x, 13.x |
 | Redis client | `ext-redis` (recommended) or `predis/predis` |
 | Database | MySQL, MariaDB, PostgreSQL, SQLite, SQL Server |
 

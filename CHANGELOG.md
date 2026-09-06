@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/systemverk/laravel-api-usage/compare/v1.0.0...v1.0.1) (2026-09-06)
+
+### 🐛 Bug Fixes
+
+* correct Redis member handling in FlushApiUsage and tests ([4fdfbbb](https://github.com/systemverk/laravel-api-usage/commit/4fdfbbb475dedcce320648cf9bd4fb723b8f730b))
+
 ## 1.0.0 (2026-09-06)
 
 ### ✨ Features

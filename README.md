@@ -582,12 +582,6 @@ composer analyse
 The suite runs against SQLite in memory with an in-memory Redis double, so no
 services are required.
 
-## Coming from `laravel-api-telemetry`?
-
-This package is its successor, rebuilt around actors and endpoints and started
-fresh. [UPGRADING.md](UPGRADING.md) maps every config key, command, class and
-column from the old package to the new one.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).

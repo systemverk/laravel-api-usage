@@ -545,6 +545,13 @@ All timestamps are stored in **UTC**, independent of `app.timezone`.
 | `user_agent` | Truncated to 512 chars, or null |
 | `request_id` | First matching correlation header, 64 chars |
 
+Indexed on `(actor_type, actor_id, requested_at, status_code)` for the query a
+quota or billing check runs against the raw rows: one actor, one period,
+counted while a caller waits. All four columns are in the index, so that count
+never touches row data. The order matters — the actor pins the scan and
+`requested_at` bounds it, while `status_code` is in there only to make the index
+covering, since a billable-status rule is a negation and cannot narrow a range.
+
 ### `api_usage_summaries`
 
 One row per `(period_type, period_start, bucket_key, endpoint_key)` — the full

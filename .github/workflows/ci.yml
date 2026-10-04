@@ -150,3 +150,44 @@ jobs:
 
       - name: Run tests
         run: composer test
+
+  redis:
+    name: Redis integration (phpredis and predis)
+    runs-on: ubuntu-latest
+    needs: static-analysis
+
+    # The rest of the suite fakes Redis. phpredis and predis disagree about how
+    # SET takes its options and how SADD takes its members, and a fake cannot
+    # tell them apart, so the flush and buffer paths also run against a real
+    # Redis through each client. One job runs both: ext-redis is installed, and
+    # predis comes with the dev dependencies.
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_REDIS_HOST: 127.0.0.1
+      TEST_REDIS_PORT: 6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_sqlite, mbstring, redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Run the Redis integration tests
+        run: vendor/bin/phpunit tests/Integration

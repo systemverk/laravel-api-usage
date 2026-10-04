@@ -20,7 +20,7 @@ Before doing substantial work, please open an issue so we can align on scope and
 
 - PHP 8.2 or newer
 - Composer
-- Redis (for the package's runtime behavior and tests)
+- Redis, only for the optional integration tests below (the main suite fakes it)
 - A supported Laravel app/test environment via `orchestra/testbench`
 
 ### Setup
@@ -37,6 +37,36 @@ composer install
 composer test
 composer analyse
 ```
+
+#### Other databases
+
+By default the suite runs against in-memory SQLite. CI also runs it against
+MySQL, MariaDB and PostgreSQL. To do the same locally, start a database and
+point the tests at it:
+
+```bash
+docker run -d --rm -p 33061:3306 -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=api_usage_test mysql:8.4
+TEST_DB_DRIVER=mysql TEST_DB_PORT=33061 composer test
+```
+
+`TEST_DB_DRIVER` is `sqlite` (default), `mysql` (also for MariaDB) or `pgsql`.
+`TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_DATABASE`, `TEST_DB_USERNAME` and
+`TEST_DB_PASSWORD` override the connection details.
+
+#### Redis integration tests
+
+The main suite fakes Redis. `tests/Integration` runs the flush and buffer paths
+against a real Redis through both phpredis and predis, because the two clients
+differ in ways a fake cannot show. They are skipped unless you point them at a
+Redis:
+
+```bash
+docker run -d --rm -p 6379:6379 redis:7
+TEST_REDIS_PORT=6379 vendor/bin/phpunit tests/Integration
+```
+
+The phpredis tests also need `ext-redis`; each class skips itself when its
+client is missing. `TEST_REDIS_HOST` defaults to `127.0.0.1`.
 
 The project also provides a combined CI-like command:
 

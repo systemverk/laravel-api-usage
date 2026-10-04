@@ -1,3 +1,15 @@
+## [1.2.0](https://github.com/systemverk/laravel-api-usage/compare/v1.1.0...v1.2.0) (2026-10-04)
+
+### ✨ Features
+
+* Add Redis integration tests and update contributing guidelines for local setup ([e36fea3](https://github.com/systemverk/laravel-api-usage/commit/e36fea31b4902f10eb7e1134b272c7b84e7b88c1))
+* Enhance API usage tracking with rejected events handling and improved flush isolation ([0e29974](https://github.com/systemverk/laravel-api-usage/commit/0e2997439ba524e069d5a4c7ba34df660fdf9388))
+* Introduce DatabaseWriter and RedisBuffer for API usage tracking ([1416047](https://github.com/systemverk/laravel-api-usage/commit/14160476696ec2cf89d280c492c4775ed8e164cd))
+
+### ♻️ Refactoring
+
+* optimize API usage request and summary migrations by removing redundant indexes and improving index definitions ([8dd205e](https://github.com/systemverk/laravel-api-usage/commit/8dd205e6797feb9f80b21a96357792765ab86b1f))
+
 ## [1.1.0](https://github.com/systemverk/laravel-api-usage/compare/v1.0.1...v1.1.0) (2026-09-22)
 
 ### ✨ Features

@@ -47,6 +47,16 @@ class ApiUsageStatusTest extends TestCase
             ->assertExitCode(0);
     }
 
+    public function test_it_reports_events_the_database_rejected(): void
+    {
+        $redis = $this->fakeRedis();
+        $redis->rpush(BufferKeys::rejected(), 'a', 'b');
+
+        $this->artisan('api-usage:status')
+            ->expectsOutputToContain('2 events')
+            ->assertExitCode(0);
+    }
+
     public function test_it_survives_an_unreachable_redis(): void
     {
         $redis = new FakeRedisConnection;

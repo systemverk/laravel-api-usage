@@ -97,6 +97,40 @@ class FakeRedisConnection extends Connection
         return array_slice($list, $start, $stop - $start + 1);
     }
 
+    public function get(string $key): mixed
+    {
+        $this->guard('get');
+
+        $value = $this->store[$key] ?? false;
+
+        return is_array($value) ? false : $value;
+    }
+
+    public function incr(string $key): int
+    {
+        $this->guard('incr');
+
+        $value = (int) ($this->store[$key] ?? 0) + 1;
+        $this->store[$key] = (string) $value;
+
+        return $value;
+    }
+
+    public function ltrim(string $key, int $start, int $stop): bool
+    {
+        $this->guard('ltrim');
+
+        $list = $this->list($key);
+        $count = count($list);
+
+        $start = $start < 0 ? max(0, $count + $start) : $start;
+        $stop = $stop < 0 ? $count + $stop : min($stop, $count - 1);
+
+        $this->store[$key] = $stop < $start ? [] : array_slice($list, $start, $stop - $start + 1);
+
+        return true;
+    }
+
     public function renamenx(string $from, string $to): bool
     {
         $this->guard('renamenx');

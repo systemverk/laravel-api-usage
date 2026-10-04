@@ -3,6 +3,7 @@
 namespace Systemverk\LaravelApiUsage\Tests\Feature;
 
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -317,6 +318,137 @@ class FlushApiUsageTest extends TestCase
 
         $this->assertArrayHasKey($lockKey, $this->redis->store);
         $this->assertSame(300, $this->redis->ttls[$lockKey] ?? null);
+    }
+
+    /**
+     * One row the database will never accept must not hold a whole minute of
+     * good events hostage until Redis expires it.
+     *
+     * The first failures are retried as they are, since most are transient.
+     * Once a buffer has failed three times, the next run inserts row by row,
+     * writes what the database takes and moves the rest to the rejected list.
+     */
+    public function test_rows_the_database_rejects_are_isolated_after_repeated_failures(): void
+    {
+        Log::shouldReceive('error')->times(3);
+        Log::shouldReceive('warning')->once();
+
+        $this->databaseRefusesRowsWithPath('/api/poison');
+
+        $poison = $this->entry(['path' => '/api/poison']);
+
+        $this->buffer(BufferKeys::currentMinute(), [
+            $this->entry(['path' => '/api/first']),
+            $poison,
+            $this->entry(['path' => '/api/second']),
+        ]);
+
+        $this->failFlushes(3);
+
+        $this->assertSame(0, ApiUsageRequest::query()->count(), 'Failed runs must write nothing.');
+
+        $this->artisan('api-usage:flush')
+            ->expectsOutputToContain('2 recovered from a previous run')
+            ->assertExitCode(0);
+
+        $this->assertSame(['/api/first', '/api/second'], ApiUsageRequest::query()->orderBy('id')->pluck('path')->all());
+
+        $rejected = $this->redis->lrange(BufferKeys::rejected(), 0, -1);
+
+        $this->assertCount(1, $rejected);
+        $this->assertSame($poison, json_decode($rejected[0], true)['entry']);
+        $this->assertNotEmpty(json_decode($rejected[0], true)['reason']);
+
+        $this->assertSame([], $this->redis->smembers(BufferKeys::processingRegistry()));
+        $this->assertSame([], array_filter(
+            array_keys($this->redis->store),
+            fn (string $key) => str_ends_with($key, ':attempts')
+        ));
+    }
+
+    /**
+     * Isolation is only for rows the database refuses on their own merits. If
+     * the database is simply failing — down, deadlocked, missing a table —
+     * every row fails, and none of them is bad.
+     */
+    public function test_a_failing_database_never_causes_good_events_to_be_rejected(): void
+    {
+        Log::shouldReceive('error')->times(4);
+
+        $this->buffer(BufferKeys::currentMinute(), [$this->entry(), $this->entry()]);
+
+        DB::listen(function (QueryExecuted $query): void {
+            if (str_starts_with(strtolower(trim($query->sql)), 'insert')) {
+                throw new \RuntimeException('server has gone away');
+            }
+        });
+
+        $this->failFlushes(4);
+
+        $this->assertSame(0, ApiUsageRequest::query()->count());
+        $this->assertSame([], $this->redis->lrange(BufferKeys::rejected(), 0, -1));
+        $this->assertCount(1, $this->redis->smembers(BufferKeys::processingRegistry()), 'The buffer must be kept.');
+    }
+
+    public function test_the_rejected_list_is_capped(): void
+    {
+        Log::shouldReceive('error')->times(3);
+        Log::shouldReceive('warning')->once();
+
+        $this->databaseRefusesRowsWithPath('/api/poison');
+
+        $entries = [$this->entry(['path' => '/api/good'])];
+
+        for ($i = 0; $i < 1200; $i++) {
+            $entries[] = $this->entry(['path' => '/api/poison']);
+        }
+
+        $this->buffer(BufferKeys::currentMinute(), $entries);
+
+        $this->failFlushes(3);
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame(1, ApiUsageRequest::query()->count());
+        $this->assertCount(1000, $this->redis->lrange(BufferKeys::rejected(), 0, -1));
+        $this->assertSame(604800, $this->redis->ttls[BufferKeys::rejected()] ?? null);
+    }
+
+    /**
+     * Make the database refuse any insert that carries this path, the way a
+     * constraint or a data error would: a QueryException with an integrity
+     * SQLSTATE, raised before the statement runs.
+     *
+     * Done here rather than with a real constraint because changing the schema
+     * inside a test commits the transaction the test runs in on MySQL, which
+     * then no longer matches what Laravel believes about its savepoints.
+     */
+    private function databaseRefusesRowsWithPath(string $path): void
+    {
+        DB::beforeExecuting(function (string $query, array $bindings) use ($path): void {
+            if (! str_starts_with(strtolower(trim($query)), 'insert') || ! in_array($path, $bindings, true)) {
+                return;
+            }
+
+            $refusal = new \PDOException('Duplicate entry');
+            $refusal->errorInfo = ['23000', 1062, 'Duplicate entry'];
+
+            throw new QueryException('testing', $query, $bindings, $refusal);
+        });
+    }
+
+    /**
+     * Run the flush command until it has failed the given number of times,
+     * releasing the claim lock in between as its TTL would.
+     */
+    private function failFlushes(int $times): void
+    {
+        for ($i = 0; $i < $times; $i++) {
+            $this->artisan('api-usage:flush')->assertExitCode(0);
+
+            foreach ($this->redis->smembers(BufferKeys::processingRegistry()) as $key) {
+                $this->redis->del(BufferKeys::lockFor($key));
+            }
+        }
     }
 
     public function test_it_does_nothing_when_the_package_is_disabled(): void

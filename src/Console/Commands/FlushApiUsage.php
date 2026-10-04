@@ -3,6 +3,7 @@
 namespace Systemverk\LaravelApiUsage\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Database\QueryException;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Redis\Connections\PhpRedisConnection;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +20,26 @@ class FlushApiUsage extends Command
      * Seconds a claimed buffer stays locked before another run may retry it.
      */
     private const CLAIM_TTL_SECONDS = 300;
+
+    /**
+     * Failed flushes of one buffer after which the next attempt isolates the
+     * rows the database rejects, instead of failing the whole buffer again.
+     * Earlier failures are retried as they are, because most are transient.
+     */
+    private const ISOLATE_AFTER_ATTEMPTS = 3;
+
+    /**
+     * The rejected list keeps at most this many events, for this many seconds.
+     */
+    private const REJECTED_LIMIT = 1000;
+
+    private const REJECTED_TTL_SECONDS = 604800;
+
+    /**
+     * Driver error codes that mean "this row's data is unacceptable" although
+     * MySQL reports them under the generic SQLSTATE HY000.
+     */
+    private const MYSQL_DATA_ERROR_CODES = [1264, 1265, 1292, 1366, 1406];
 
     /**
      * The name and signature of the console command.
@@ -213,11 +234,15 @@ class FlushApiUsage extends Command
                 return 0;
             }
 
+            $isolate = $this->attempts($redis, $processingKey) >= self::ISOLATE_AFTER_ATTEMPTS;
+
             // One transaction for the whole buffer: a failure part-way rolls
             // everything back, so the retry cannot insert the earlier chunks a
             // second time.
             $written = (new ApiUsageRequest)->getConnection()->transaction(
-                fn (): int => $this->insertBuffered($redis, $processingKey)
+                fn (): int => $isolate
+                    ? $this->insertIsolating($redis, $processingKey)
+                    : $this->insertBuffered($redis, $processingKey)
             );
 
             $this->discard($redis, $processingKey);
@@ -229,6 +254,7 @@ class FlushApiUsage extends Command
             // The key stays in the registry and the lock is left to expire, so
             // the next scheduled run retries instead of dropping the entries.
             $this->keepForRetry($redis, $processingKey);
+            $this->countAttempt($redis, $processingKey);
 
             return 0;
         }
@@ -276,35 +302,162 @@ class FlushApiUsage extends Command
     }
 
     /**
+     * The same read as insertBuffered(), but each row is inserted on its own
+     * inside a savepoint, so a row the database refuses is rolled back alone.
+     *
+     * Only a refusal of the row itself counts (see isRowRejection()). Anything
+     * else — a lost connection, a deadlock, a missing table — aborts the whole
+     * run, which rolls back and leaves the buffer for the next one: good events
+     * must never be written off because the database had a bad moment.
+     *
+     * @return int Rows written
+     */
+    private function insertIsolating(Connection $redis, string $processingKey): int
+    {
+        $database = (new ApiUsageRequest)->getConnection();
+        $size = UsageConfig::flushBatchSize();
+        $offset = 0;
+        $written = 0;
+
+        /** @var array<int, array{0: string, 1: string}> $rejected */
+        $rejected = [];
+
+        do {
+            $entries = $redis->lrange($processingKey, $offset, $offset + $size - 1);
+
+            foreach ($this->decode($entries) as [$raw, $row]) {
+                try {
+                    // Nested inside the run's transaction, so this is a savepoint.
+                    $database->transaction(fn () => ApiUsageRequest::query()->insert($row));
+                    $written++;
+                } catch (\Throwable $exception) {
+                    if (! $this->isRowRejection($exception)) {
+                        throw $exception;
+                    }
+
+                    $rejected[] = [$raw, $exception->getMessage()];
+                }
+            }
+
+            $offset += $size;
+        } while (is_array($entries) && count($entries) === $size);
+
+        if ($rejected !== []) {
+            // Stored before the transaction commits: if Redis fails, the run
+            // rolls back and retries; if the commit fails, the retry at worst
+            // lists the same rejects twice.
+            $this->keepRejected($redis, $rejected);
+        }
+
+        return $written;
+    }
+
+    /**
+     * Whether the database refused this row for what it contains: a constraint
+     * or a data error. Any other failure says nothing about the row.
+     */
+    private function isRowRejection(\Throwable $exception): bool
+    {
+        if (! $exception instanceof QueryException) {
+            return false;
+        }
+
+        $sqlState = (string) ($exception->errorInfo[0] ?? '');
+        $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+
+        return str_starts_with($sqlState, '22')
+            || str_starts_with($sqlState, '23')
+            || in_array($driverCode, self::MYSQL_DATA_ERROR_CODES, true);
+    }
+
+    /**
+     * @param  array<int, array{0: string, 1: string}>  $rejected  Raw entry and the database's reason
+     */
+    private function keepRejected(Connection $redis, array $rejected): void
+    {
+        $list = BufferKeys::rejected();
+        $now = now()->utc()->toDateTimeString();
+
+        foreach ($rejected as [$raw, $reason]) {
+            $redis->rpush($list, (string) json_encode([
+                'rejected_at' => $now,
+                'reason' => $reason,
+                'entry' => $raw,
+            ]));
+        }
+
+        $redis->ltrim($list, -self::REJECTED_LIMIT, -1);
+        $redis->expire($list, self::REJECTED_TTL_SECONDS);
+
+        Log::warning('The database rejected buffered API usage events; they were moved to the rejected list.', [
+            'count' => count($rejected),
+            'key' => $list,
+        ]);
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function rowsFrom(mixed $entries): array
+    {
+        return array_map(fn (array $pair): array => $pair[1], $this->decode($entries));
+    }
+
+    /**
+     * Decode buffered entries into insertable rows, keeping each entry's raw
+     * text so a rejected one can be stored exactly as it was buffered. Entries
+     * that are not valid, or come from an unknown payload version, are skipped.
+     *
+     * @return array<int, array{0: string, 1: array<string, mixed>}>
+     */
+    private function decode(mixed $entries): array
     {
         if (! is_array($entries)) {
             return [];
         }
 
-        $rows = [];
+        $decoded = [];
 
         foreach ($entries as $entry) {
             if (! is_string($entry)) {
                 continue;
             }
 
-            $decoded = json_decode($entry, true);
+            $payload = json_decode($entry, true);
 
-            if (! is_array($decoded)) {
+            if (! is_array($payload)) {
                 continue;
             }
 
-            $row = UsageRecorder::prepareForInsert($decoded);
+            $row = UsageRecorder::prepareForInsert($payload);
 
             if ($row !== null) {
-                $rows[] = $row;
+                $decoded[] = [$entry, $row];
             }
         }
 
-        return $rows;
+        return $decoded;
+    }
+
+    private function attempts(Connection $redis, string $processingKey): int
+    {
+        return (int) $redis->get(BufferKeys::attemptsFor($processingKey));
+    }
+
+    private function countAttempt(?Connection $redis, string $processingKey): void
+    {
+        if ($redis === null) {
+            return;
+        }
+
+        try {
+            $key = BufferKeys::attemptsFor($processingKey);
+
+            $redis->incr($key);
+            $redis->expire($key, UsageConfig::redisTtlSeconds());
+        } catch (\Throwable) {
+            //
+        }
     }
 
     private function acquireClaim(Connection $redis, string $processingKey): bool
@@ -338,6 +491,7 @@ class FlushApiUsage extends Command
     {
         $redis->del($processingKey);
         $redis->del(BufferKeys::lockFor($processingKey));
+        $redis->del(BufferKeys::attemptsFor($processingKey));
         $redis->srem(BufferKeys::processingRegistry(), $processingKey);
     }
 

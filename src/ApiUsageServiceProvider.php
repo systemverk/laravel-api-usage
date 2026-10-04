@@ -24,6 +24,18 @@ use Systemverk\LaravelApiUsage\Support\UsageRecorder;
 class ApiUsageServiceProvider extends ServiceProvider
 {
     /**
+     * How long the overlap guard of the hourly consolidation may be held: well
+     * under the hour between runs, so a stale lock never skips the next one.
+     */
+    private const HOURLY_MUTEX_MINUTES = 50;
+
+    /**
+     * The same for the daily, monthly and prune runs: far longer than any
+     * healthy run, yet under the 24 hours between daily runs.
+     */
+    private const LONG_MUTEX_MINUTES = 720;
+
+    /**
      * Register package services.
      */
     public function register(): void
@@ -156,25 +168,31 @@ class ApiUsageServiceProvider extends ServiceProvider
                 $schedule->command(FlushApiUsage::class)->everyMinute();
             }
 
+            // Every guard below carries an explicit expiry. withoutOverlapping()
+            // defaults to 24 hours, and a lock left behind by a killed run would
+            // then still be held when the next daily run starts at the same
+            // time of day, silently skipping it. The expiry has to be shorter
+            // than the interval between runs.
+
             // The query API reads summaries, so today's numbers are only as
             // fresh as the most recent consolidation of the current day.
             if (config('api_usage.schedule.consolidate_today', true)) {
                 $schedule->command(ConsolidateDailyApiUsage::class, ['--today'])
                     ->hourly()
-                    ->withoutOverlapping();
+                    ->withoutOverlapping(self::HOURLY_MUTEX_MINUTES);
             }
 
             $schedule->command(ConsolidateDailyApiUsage::class)
                 ->dailyAt((string) config('api_usage.schedule.daily_at', '02:00'))
-                ->withoutOverlapping();
+                ->withoutOverlapping(self::LONG_MUTEX_MINUTES);
 
             $schedule->command(ConsolidateMonthlyApiUsage::class)
                 ->monthlyOn(1, (string) config('api_usage.schedule.monthly_at', '03:00'))
-                ->withoutOverlapping();
+                ->withoutOverlapping(self::LONG_MUTEX_MINUTES);
 
             $schedule->command(PruneApiUsage::class)
                 ->dailyAt((string) config('api_usage.schedule.prune_at', '03:10'))
-                ->withoutOverlapping();
+                ->withoutOverlapping(self::LONG_MUTEX_MINUTES);
         });
     }
 }

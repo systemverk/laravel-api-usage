@@ -48,6 +48,37 @@ class ServiceProviderTest extends TestCase
         $this->assertTrue($matching->contains(fn ($event) => str_contains((string) $event->command, '--today')));
     }
 
+    /**
+     * withoutOverlapping() defaults to a 24-hour lock. For a daily command that
+     * means a lock left by a killed run is still held when the next run starts,
+     * so every guard needs an expiry shorter than the gap between its runs.
+     */
+    public function test_every_overlap_guard_expires_before_the_next_run(): void
+    {
+        $events = collect($this->app()->make(Schedule::class)->events())
+            ->filter(fn ($event) => str_contains((string) $event->command, 'api-usage:'));
+
+        foreach ($events as $event) {
+            $command = (string) $event->command;
+
+            if (str_contains($command, 'api-usage:flush')) {
+                $this->assertFalse($event->withoutOverlapping, 'Flush is guarded by its own claim locks.');
+
+                continue;
+            }
+
+            $this->assertTrue($event->withoutOverlapping, "{$command} should not overlap itself.");
+
+            $hourly = str_contains($command, '--today');
+
+            $this->assertLessThan(
+                $hourly ? 60 : 1440,
+                $event->expiresAt,
+                "{$command} must release a stale lock before its next run."
+            );
+        }
+    }
+
     public function test_the_default_resolvers_are_bound(): void
     {
         $this->assertInstanceOf(AuthenticatedUserActorResolver::class, $this->app()->make(ResolvesUsageActor::class));

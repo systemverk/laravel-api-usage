@@ -48,4 +48,23 @@ final class BufferKeys
     {
         return $processingKey.':lock';
     }
+
+    /**
+     * How many times flushing a claimed buffer has failed. Once it passes a
+     * threshold, the next attempt isolates the rows the database rejects
+     * instead of failing the whole buffer again.
+     */
+    public static function attemptsFor(string $processingKey): string
+    {
+        return $processingKey.':attempts';
+    }
+
+    /**
+     * Events the database refused even on their own, kept for inspection.
+     * Capped and expiring, so a systematic problem cannot fill Redis.
+     */
+    public static function rejected(): string
+    {
+        return UsageConfig::redisKeyPrefix().'rejected';
+    }
 }

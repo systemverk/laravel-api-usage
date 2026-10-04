@@ -495,6 +495,15 @@ Two things to be aware of:
   flush. Those buffered events are gone.
 - **Flushing is down for longer than `buffer.ttl_seconds`** (two hours by
   default). Buffers that have not been flushed by then expire in Redis.
+- **The database refuses an event** — a constraint violation or a data error.
+  A failing buffer is retried as it is at first, since most failures are
+  transient. After three failures the next run inserts it row by row, writes
+  everything the database accepts and moves each refused event, exactly as it was
+  buffered, to the `api_usage:rejected` Redis list (newest 1000, kept for seven
+  days). `api-usage:status` shows how many are waiting there; inspect them with
+  `LRANGE api_usage:rejected 0 -1`. Failures that say nothing about the row — a
+  lost connection, a deadlock, a missing table — never cause an event to be
+  rejected; the buffer stays and is retried.
 - **A resolver throws.** An actor resolver failure drops that one record rather
   than misfiling it; an endpoint resolver failure falls back to the raw path and
   keeps the record.
@@ -544,10 +553,12 @@ use Illuminate\Support\Facades\Schedule;
 // No withoutOverlapping() on flush: its default mutex lasts 24 hours, and
 // overlapping runs are safe because every buffer is claimed atomically.
 Schedule::command('api-usage:flush')->everyMinute();
-Schedule::command('api-usage:consolidate-daily --today')->hourly()->withoutOverlapping();
-Schedule::command('api-usage:consolidate-daily')->dailyAt('02:00');
-Schedule::command('api-usage:consolidate-monthly')->monthlyOn(1, '03:00');
-Schedule::command('api-usage:prune')->dailyAt('03:10');
+// Give every overlap guard an expiry shorter than the gap between runs: the
+// default of 24 hours lets a stale lock from a killed run skip the next daily run.
+Schedule::command('api-usage:consolidate-daily --today')->hourly()->withoutOverlapping(50);
+Schedule::command('api-usage:consolidate-daily')->dailyAt('02:00')->withoutOverlapping(720);
+Schedule::command('api-usage:consolidate-monthly')->monthlyOn(1, '03:00')->withoutOverlapping(720);
+Schedule::command('api-usage:prune')->dailyAt('03:10')->withoutOverlapping(720);
 ```
 
 ## Data Model

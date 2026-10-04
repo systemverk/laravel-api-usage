@@ -39,7 +39,7 @@ class ApiUsageStatus extends Command
     {
         $redis = UsageConfig::usesRedis()
             ? $this->redisStatus()
-            : ['status' => 'not used', 'pending' => 'n/a', 'processing' => 'n/a'];
+            : ['status' => 'not used', 'pending' => 'n/a', 'processing' => 'n/a', 'rejected' => 'n/a'];
         $database = $this->databaseStatus();
 
         $this->table(['Setting', 'Value'], [
@@ -52,6 +52,7 @@ class ApiUsageStatus extends Command
             ['Redis connection', UsageConfig::usesRedis() ? UsageConfig::redisConnection().' — '.$redis['status'] : 'not used'],
             ['Pending buffer', $redis['pending']],
             ['Processing buffer', $redis['processing']],
+            ['Rejected events', $redis['rejected']],
             ['Database connection', (UsageConfig::databaseConnection() ?? 'default').' — '.$database['status']],
             ['Raw rows', $database['requests']],
             ['Daily summaries', $database['daily']],
@@ -65,11 +66,11 @@ class ApiUsageStatus extends Command
     }
 
     /**
-     * @return array{status: string, pending: string, processing: string}
+     * @return array{status: string, pending: string, processing: string, rejected: string}
      */
     private function redisStatus(): array
     {
-        $unknown = ['status' => 'unreachable', 'pending' => 'unknown', 'processing' => 'unknown'];
+        $unknown = ['status' => 'unreachable', 'pending' => 'unknown', 'processing' => 'unknown', 'rejected' => 'unknown'];
 
         try {
             $connection = Redis::connection(UsageConfig::redisConnection());
@@ -91,6 +92,7 @@ class ApiUsageStatus extends Command
                 'status' => 'connected',
                 'pending' => $pending.' events in '.count($buffers).' buffers',
                 'processing' => is_array($processing) ? count($processing).' claimed buffers' : 'unknown',
+                'rejected' => (int) $connection->llen(BufferKeys::rejected()).' events',
             ];
         } catch (\Throwable $exception) {
             $this->warn('Redis: '.$exception->getMessage());

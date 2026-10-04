@@ -56,16 +56,13 @@ return new class extends Migration
             $table->timestamps();
 
             // The complete aggregation identity: period, who, with which key,
-            // against which endpoint. Consolidation upserts on exactly this.
+            // against which endpoint. Consolidation upserts on exactly this,
+            // and its `(period_type, period_start)` prefix also serves period
+            // scans and pruning, so no further index is needed.
             $table->unique(
                 ['period_type', 'period_start', 'bucket_key', 'endpoint_key'],
                 $tableName.'_identity_unique'
             );
-
-            // Serves period scans and the actor/endpoint analytics queries.
-            $table->index(['period_type', 'period_start']);
-            $table->index(['period_type', 'period_start', 'actor_type', 'actor_id']);
-            $table->index(['period_type', 'period_start', 'endpoint_key']);
         });
     }
 

@@ -27,12 +27,11 @@ return new class extends Migration
             $table->timestamp('requested_at')->index();
 
             // Actor identifiers are always strings, so integer and UUID keys
-            // produce the same storage shape.
-            $table->string('actor_type', UsageActor::MAX_TYPE_LENGTH)->nullable();
-            $table->string('actor_id', UsageActor::MAX_ID_LENGTH)->nullable();
-            $table->string('actor_key', UsageEvent::MAX_BUCKET_KEY_LENGTH);
+            // produce the same storage shape. The "type:id" key is never stored:
+            // it is just these two columns joined.
+            $table->string('actor_type', UsageActor::MAX_TYPE_LENGTH);
+            $table->string('actor_id', UsageActor::MAX_ID_LENGTH);
             $table->string('credential_id', UsageEvent::MAX_CREDENTIAL_ID_LENGTH)->nullable();
-            $table->string('bucket_key', UsageEvent::MAX_BUCKET_KEY_LENGTH);
 
             $table->string('method', UsageEndpoint::MAX_METHOD_LENGTH);
             $table->string('route_name', UsageEndpoint::MAX_ROUTE_NAME_LENGTH)->nullable();

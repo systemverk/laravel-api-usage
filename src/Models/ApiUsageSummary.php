@@ -3,6 +3,7 @@
 namespace Systemverk\LaravelApiUsage\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Systemverk\LaravelApiUsage\Actors\UsageActor;
 use Systemverk\LaravelApiUsage\Support\UsageConfig;
@@ -16,11 +17,9 @@ use Systemverk\LaravelApiUsage\Support\UsageConfig;
  * @property int $id
  * @property string $period_type
  * @property \Illuminate\Support\Carbon $period_start
- * @property string|null $actor_type
- * @property string|null $actor_id
- * @property string $actor_key
+ * @property string $actor_type
+ * @property string $actor_id
  * @property string|null $credential_id
- * @property string $bucket_key
  * @property string $endpoint_key
  * @property string $method
  * @property string|null $route_name
@@ -45,8 +44,6 @@ class ApiUsageSummary extends Model
 
     protected $casts = [
         'period_start' => 'date',
-        'actor_key' => 'string',
-        'bucket_key' => 'string',
         'total_requests' => 'integer',
         'responses_1xx' => 'integer',
         'responses_2xx' => 'integer',
@@ -57,6 +54,21 @@ class ApiUsageSummary extends Model
         'min_duration_ms' => 'integer',
         'max_duration_ms' => 'integer',
     ];
+
+    /**
+     * "No credential" is stored as an empty string, because the column is part
+     * of the unique index and a NULL there would let duplicates through. The
+     * model hides that: callers see and set null.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function credentialId(): Attribute
+    {
+        return Attribute::make(
+            get: fn (?string $value): ?string => $value === '' ? null : $value,
+            set: fn (?string $value): string => $value ?? '',
+        );
+    }
 
     public function getTable(): string
     {

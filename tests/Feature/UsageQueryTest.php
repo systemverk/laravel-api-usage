@@ -201,9 +201,7 @@ class UsageQueryTest extends TestCase
         return [
             'actor_type' => $type,
             'actor_id' => $id,
-            'actor_key' => $actorKey,
             'credential_id' => $credentialId,
-            'bucket_key' => $credentialId === null ? $actorKey : $actorKey.'|cred:'.$credentialId,
         ];
     }
 
@@ -223,9 +221,7 @@ class UsageQueryTest extends TestCase
             'period_start' => $date,
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
             'credential_id' => null,
-            'bucket_key' => 'guest',
             'endpoint_key' => $endpointKey,
             'method' => 'GET',
             'route_name' => 'api.orders.index',

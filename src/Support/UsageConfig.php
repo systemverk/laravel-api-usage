@@ -18,6 +18,26 @@ class UsageConfig
         return (bool) config('api_usage.enabled', true);
     }
 
+    public const DRIVER_REDIS = 'redis';
+
+    public const DRIVER_DATABASE = 'database';
+
+    /**
+     * How requests are stored. Anything but "database" means the Redis buffer,
+     * so a typo fails towards the driver built for production traffic.
+     */
+    public static function driver(): string
+    {
+        return config('api_usage.driver') === self::DRIVER_DATABASE
+            ? self::DRIVER_DATABASE
+            : self::DRIVER_REDIS;
+    }
+
+    public static function usesRedis(): bool
+    {
+        return self::driver() === self::DRIVER_REDIS;
+    }
+
     // -----------------------------------------------------------------
     // Actor
     // -----------------------------------------------------------------

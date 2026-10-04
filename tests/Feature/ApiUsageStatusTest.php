@@ -66,8 +66,6 @@ class ApiUsageStatusTest extends TestCase
             'requested_at' => now()->utc(),
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
-            'bucket_key' => 'guest',
             'method' => 'GET',
             'path' => '/api/orders',
             'endpoint_key' => 'GET:/api/orders',

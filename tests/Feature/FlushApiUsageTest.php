@@ -55,7 +55,6 @@ class FlushApiUsageTest extends TestCase
             $this->entry([
                 'actor_type' => 'organization',
                 'actor_id' => '42',
-                'actor_key' => 'organization:42',
                 'credential_id' => '91',
                 'route_name' => 'api.orders.show',
                 'route_uri' => '/api/orders/{order}',
@@ -70,9 +69,7 @@ class FlushApiUsageTest extends TestCase
 
         $this->assertSame('organization', $row->actor_type);
         $this->assertSame('42', $row->actor_id);
-        $this->assertSame('organization:42', $row->actor_key);
         $this->assertSame('91', $row->credential_id);
-        $this->assertSame('organization:42|cred:91', $row->bucket_key);
         $this->assertSame('GET:api.orders.show', $row->endpoint_key);
         $this->assertSame('api.orders.show', $row->route_name);
     }
@@ -377,7 +374,6 @@ class FlushApiUsageTest extends TestCase
             'requested_at' => Carbon::now('UTC')->toDateTimeString(),
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
             'credential_id' => null,
             'method' => 'GET',
             'route_name' => null,

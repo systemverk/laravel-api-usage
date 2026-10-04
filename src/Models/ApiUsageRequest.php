@@ -16,11 +16,9 @@ use Systemverk\LaravelApiUsage\Support\UsageConfig;
  *
  * @property int $id
  * @property \Illuminate\Support\Carbon $requested_at
- * @property string|null $actor_type
- * @property string|null $actor_id
- * @property string $actor_key
+ * @property string $actor_type
+ * @property string $actor_id
  * @property string|null $credential_id
- * @property string $bucket_key
  * @property string $method
  * @property string|null $route_name
  * @property string|null $route_uri

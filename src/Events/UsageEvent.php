@@ -20,11 +20,9 @@ final readonly class UsageEvent
      * command could misread. Entries carrying an unknown version are discarded
      * rather than half-decoded.
      */
-    public const VERSION = 2;
+    public const VERSION = 3;
 
     public const MAX_CREDENTIAL_ID_LENGTH = 64;
-
-    public const MAX_BUCKET_KEY_LENGTH = 191;
 
     public const MAX_USER_AGENT_LENGTH = 512;
 
@@ -45,28 +43,6 @@ final readonly class UsageEvent
     ) {}
 
     /**
-     * The full aggregation identity of the actor side of this event.
-     *
-     * The actor key alone is not enough: two credentials belonging to the same
-     * actor must land in different buckets. Kept as one NOT NULL string so it
-     * can carry a unique index — a nullable credential column in that index
-     * would defeat the upsert, because SQL treats every NULL as distinct.
-     */
-    public function bucketKey(): string
-    {
-        return self::bucketKeyFor($this->actor->key(), $this->credentialId);
-    }
-
-    public static function bucketKeyFor(string $actorKey, ?string $credentialId): string
-    {
-        if ($credentialId !== null && $credentialId !== '') {
-            $actorKey .= '|cred:'.$credentialId;
-        }
-
-        return mb_substr($actorKey, 0, self::MAX_BUCKET_KEY_LENGTH);
-    }
-
-    /**
      * @return array<string, mixed>
      */
     public function toPayload(): array
@@ -76,7 +52,6 @@ final readonly class UsageEvent
             'requested_at' => $this->requestedAt->toDateTimeString(),
             'actor_type' => $this->actor->type,
             'actor_id' => $this->actor->id,
-            'actor_key' => $this->actor->key(),
             'credential_id' => $this->credentialId,
             'method' => $this->endpoint->method,
             'route_name' => $this->endpoint->routeName,

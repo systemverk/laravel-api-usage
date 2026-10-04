@@ -9,12 +9,19 @@ use Systemverk\LaravelApiUsage\Actors\UsageActor;
  */
 final readonly class ActorUsage
 {
+    /**
+     * Stable, groupable identity: "type:id", or plain "guest". Derived from the
+     * actor columns rather than stored in the database.
+     */
+    public string $actorKey;
+
     public function __construct(
         public ?string $actorType,
         public ?string $actorId,
-        public string $actorKey,
         public UsageSummary $summary,
-    ) {}
+    ) {
+        $this->actorKey = UsageActor::fromStored($actorType, $actorId)?->key() ?? '';
+    }
 
     /**
      * @param  array<string, mixed>  $row
@@ -24,7 +31,6 @@ final readonly class ActorUsage
         return new self(
             actorType: isset($row['actor_type']) ? (string) $row['actor_type'] : null,
             actorId: isset($row['actor_id']) ? (string) $row['actor_id'] : null,
-            actorKey: (string) ($row['actor_key'] ?? ''),
             summary: UsageSummary::fromTotals($row),
         );
     }

@@ -156,22 +156,6 @@ class UsageRecorderTest extends TestCase
         $this->assertNull($event->credentialId);
     }
 
-    public function test_the_bucket_key_separates_credentials_of_one_actor(): void
-    {
-        $this->assertSame('user:42', UsageEvent::bucketKeyFor('user:42', null));
-        $this->assertSame('user:42', UsageEvent::bucketKeyFor('user:42', ''));
-        $this->assertSame('user:42|cred:7', UsageEvent::bucketKeyFor('user:42', '7'));
-        $this->assertSame('guest', UsageEvent::bucketKeyFor('guest', null));
-    }
-
-    public function test_the_widest_realistic_bucket_key_survives_intact(): void
-    {
-        $key = UsageEvent::bucketKeyFor('user:'.str_repeat('x', 64), str_repeat('y', 64));
-
-        $this->assertSame('user:'.str_repeat('x', 64).'|cred:'.str_repeat('y', 64), $key);
-        $this->assertLessThanOrEqual(UsageEvent::MAX_BUCKET_KEY_LENGTH, mb_strlen($key));
-    }
-
     // -----------------------------------------------------------------
     // Privacy
     // -----------------------------------------------------------------
@@ -323,9 +307,7 @@ class UsageRecorderTest extends TestCase
         $this->assertNotNull($row);
         $this->assertSame('organization', $row['actor_type']);
         $this->assertSame('42', $row['actor_id']);
-        $this->assertSame('organization:42', $row['actor_key']);
         $this->assertSame('7', $row['credential_id']);
-        $this->assertSame('organization:42|cred:7', $row['bucket_key']);
         $this->assertSame('GET:/api/orders/9', $row['endpoint_key']);
         $this->assertSame(204, $row['status_code']);
     }
@@ -348,7 +330,7 @@ class UsageRecorderTest extends TestCase
 
     public function test_a_payload_missing_required_fields_is_discarded(): void
     {
-        foreach (['requested_at', 'actor_key', 'method', 'path', 'endpoint_key', 'status_code', 'duration_ms'] as $field) {
+        foreach (['requested_at', 'actor_type', 'actor_id', 'method', 'path', 'endpoint_key', 'status_code', 'duration_ms'] as $field) {
             $entry = $this->validPayload();
             unset($entry[$field]);
 
@@ -381,7 +363,6 @@ class UsageRecorderTest extends TestCase
             'requested_at' => '2026-06-17 14:35:00',
             'actor_type' => 'user',
             'actor_id' => '1',
-            'actor_key' => 'user:1',
             'credential_id' => null,
             'method' => 'GET',
             'route_name' => null,

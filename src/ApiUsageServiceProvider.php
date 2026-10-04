@@ -14,7 +14,10 @@ use Systemverk\LaravelApiUsage\Console\Commands\FlushApiUsage;
 use Systemverk\LaravelApiUsage\Console\Commands\PruneApiUsage;
 use Systemverk\LaravelApiUsage\Contracts\ResolvesUsageActor;
 use Systemverk\LaravelApiUsage\Contracts\ResolvesUsageEndpoint;
+use Systemverk\LaravelApiUsage\Contracts\StoresUsageEvents;
 use Systemverk\LaravelApiUsage\Http\Middleware\RecordApiUsage;
+use Systemverk\LaravelApiUsage\Storage\DatabaseWriter;
+use Systemverk\LaravelApiUsage\Storage\RedisBuffer;
 use Systemverk\LaravelApiUsage\Support\UsageConfig;
 use Systemverk\LaravelApiUsage\Support\UsageRecorder;
 
@@ -32,6 +35,13 @@ class ApiUsageServiceProvider extends ServiceProvider
         // The recorder is stateless, and the middleware receives it by
         // injection, so one instance per worker is enough.
         $this->app->singleton(UsageRecorder::class);
+
+        // Chosen when the middleware is built, not when the provider
+        // registers, so the driver follows the config as it stands.
+        $this->app->bind(
+            StoresUsageEvents::class,
+            fn () => UsageConfig::usesRedis() ? new RedisBuffer : new DatabaseWriter
+        );
 
         $this->bindResolver(ResolvesUsageActor::class, UsageConfig::actorResolver(...));
         $this->bindResolver(ResolvesUsageEndpoint::class, UsageConfig::endpointResolver(...));
@@ -137,11 +147,14 @@ class ApiUsageServiceProvider extends ServiceProvider
         }
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-            // Deliberately not withoutOverlapping(): its mutex lasts 24 hours by
-            // default, so one killed run (a deploy, an OOM) would stop flushing
-            // for a day. Overlap is harmless here, because every buffer is
-            // claimed atomically and guarded by its own expiring lock.
-            $schedule->command(FlushApiUsage::class)->everyMinute();
+            // Only the Redis driver has anything to flush. Deliberately not
+            // withoutOverlapping(): its mutex lasts 24 hours by default, so one
+            // killed run (a deploy, an OOM) would stop flushing for a day.
+            // Overlap is harmless here, because every buffer is claimed
+            // atomically and guarded by its own expiring lock.
+            if (UsageConfig::usesRedis()) {
+                $schedule->command(FlushApiUsage::class)->everyMinute();
+            }
 
             // The query API reads summaries, so today's numbers are only as
             // fresh as the most recent consolidation of the current day.

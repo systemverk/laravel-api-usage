@@ -99,7 +99,7 @@ class ActorQueryTest extends TestCase
         $this->assertCount(15, ApiUsage::actors()->today()->all());
     }
 
-    public function test_ties_are_broken_deterministically_by_actor_key(): void
+    public function test_ties_are_broken_deterministically_by_actor_type_and_id(): void
     {
         $this->actor('user', 'c', ['total_requests' => 5]);
         $this->actor('user', 'a', ['total_requests' => 5]);
@@ -159,9 +159,7 @@ class ActorQueryTest extends TestCase
             'period_start' => '2026-06-17',
             'actor_type' => $type,
             'actor_id' => $id,
-            'actor_key' => $actorKey,
             'credential_id' => $credentialId,
-            'bucket_key' => $credentialId === null ? $actorKey : $actorKey.'|cred:'.$credentialId,
             'endpoint_key' => 'GET:api.orders.index',
             'method' => 'GET',
             'route_name' => 'api.orders.index',

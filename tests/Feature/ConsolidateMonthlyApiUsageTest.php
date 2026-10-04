@@ -33,13 +33,13 @@ class ConsolidateMonthlyApiUsageTest extends TestCase
 
         $this->artisan('api-usage:consolidate-monthly', ['--month' => '2026-06'])->assertExitCode(0);
 
-        $guest = ApiUsageSummary::query()->monthly()->where('actor_key', 'guest')->firstOrFail();
+        $guest = ApiUsageSummary::query()->monthly()->where('actor_type', 'guest')->firstOrFail();
 
         $this->assertSame(15, $guest->total_requests);
         $this->assertSame(13, $guest->responses_2xx);
         $this->assertSame(2, $guest->responses_5xx);
 
-        $user = ApiUsageSummary::query()->monthly()->where('actor_key', 'user:7')->firstOrFail();
+        $user = ApiUsageSummary::query()->monthly()->where('actor_type', 'user')->where('actor_id', '7')->firstOrFail();
 
         $this->assertSame(3, $user->total_requests);
         $this->assertSame(3, $user->responses_4xx);
@@ -54,13 +54,13 @@ class ConsolidateMonthlyApiUsageTest extends TestCase
 
         $this->artisan('api-usage:consolidate-monthly', ['--month' => '2026-06'])->assertExitCode(0);
 
-        $first = ApiUsageSummary::query()->monthly()->where('bucket_key', 'user:7|cred:1')->firstOrFail();
+        $first = ApiUsageSummary::query()->monthly()->where('actor_id', '7')->where('credential_id', '1')->firstOrFail();
 
         $this->assertSame(10, $first->total_requests);
         $this->assertSame('7', $first->actor_id);
         $this->assertSame('1', $first->credential_id);
 
-        $second = ApiUsageSummary::query()->monthly()->where('bucket_key', 'user:7|cred:2')->firstOrFail();
+        $second = ApiUsageSummary::query()->monthly()->where('actor_id', '7')->where('credential_id', '2')->firstOrFail();
 
         $this->assertSame(3, $second->total_requests);
     }
@@ -183,9 +183,7 @@ class ConsolidateMonthlyApiUsageTest extends TestCase
         return [
             'actor_type' => $type,
             'actor_id' => $id,
-            'actor_key' => $actorKey,
             'credential_id' => $credentialId,
-            'bucket_key' => $credentialId === null ? $actorKey : $actorKey.'|cred:'.$credentialId,
         ];
     }
 
@@ -200,9 +198,7 @@ class ConsolidateMonthlyApiUsageTest extends TestCase
             'period_start' => $date,
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
             'credential_id' => null,
-            'bucket_key' => 'guest',
             'endpoint_key' => $endpointKey,
             'method' => 'GET',
             'route_name' => 'api.orders.index',

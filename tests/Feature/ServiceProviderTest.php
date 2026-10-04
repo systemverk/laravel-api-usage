@@ -8,9 +8,12 @@ use Illuminate\Support\Facades\Schema;
 use Systemverk\LaravelApiUsage\ApiUsageManager;
 use Systemverk\LaravelApiUsage\ApiUsageServiceProvider;
 use Systemverk\LaravelApiUsage\Actors\AuthenticatedUserActorResolver;
+use Systemverk\LaravelApiUsage\Actors\UsageActor;
 use Systemverk\LaravelApiUsage\Contracts\ResolvesUsageActor;
 use Systemverk\LaravelApiUsage\Contracts\ResolvesUsageEndpoint;
 use Systemverk\LaravelApiUsage\Endpoints\RouteEndpointResolver;
+use Systemverk\LaravelApiUsage\Endpoints\UsageEndpoint;
+use Systemverk\LaravelApiUsage\Events\UsageEvent;
 use Systemverk\LaravelApiUsage\Facades\ApiUsage;
 use Systemverk\LaravelApiUsage\Models\ApiUsageRequest;
 use Systemverk\LaravelApiUsage\Models\ApiUsageSummary;
@@ -71,14 +74,14 @@ class ServiceProviderTest extends TestCase
         $this->assertTrue(Schema::hasTable('api_usage_summaries'));
 
         $this->assertTrue(Schema::hasColumns('api_usage_requests', [
-            'actor_type', 'actor_id', 'actor_key', 'credential_id', 'bucket_key',
+            'actor_type', 'actor_id', 'credential_id',
             'method', 'route_name', 'route_uri', 'path', 'endpoint_key',
             'status_code', 'duration_ms', 'ip_hash', 'user_agent', 'request_id',
         ]));
 
         $this->assertTrue(Schema::hasColumns('api_usage_summaries', [
-            'period_type', 'period_start', 'actor_type', 'actor_id', 'actor_key',
-            'credential_id', 'bucket_key', 'endpoint_key', 'method', 'route_name', 'route_uri',
+            'period_type', 'period_start', 'actor_type', 'actor_id',
+            'credential_id', 'endpoint_key', 'method', 'route_name', 'route_uri',
             'responses_1xx', 'responses_2xx', 'responses_3xx', 'responses_4xx', 'responses_5xx',
             'total_duration_ms', 'min_duration_ms', 'max_duration_ms',
         ]));
@@ -97,8 +100,6 @@ class ServiceProviderTest extends TestCase
             'period_start' => '2026-06-17',
             'actor_type' => 'user',
             'actor_id' => '1',
-            'actor_key' => 'user:1',
-            'bucket_key' => 'user:1',
             'endpoint_key' => 'GET:api.orders.index',
             'method' => 'GET',
             'total_requests' => 1,
@@ -111,22 +112,66 @@ class ServiceProviderTest extends TestCase
         ApiUsageSummary::query()->create($row);
     }
 
-    public function test_a_full_width_bucket_key_survives_a_round_trip(): void
+    /**
+     * Every column of the unique index at its widest. On MySQL this is the case
+     * that would fail first if the index outgrew the engine's key length limit.
+     */
+    public function test_a_full_width_identity_survives_a_round_trip(): void
     {
-        // "user:" + 64 + "|cred:" + 64 = 139 characters at worst.
-        $bucketKey = 'user:'.str_repeat('x', 64).'|cred:'.str_repeat('y', 64);
-
         ApiUsageSummary::query()->create([
             'period_type' => 'day',
             'period_start' => '2026-06-17',
-            'actor_key' => 'user:'.str_repeat('x', 64),
-            'bucket_key' => $bucketKey,
-            'endpoint_key' => 'GET:api.orders.index',
+            'actor_type' => str_repeat('x', UsageActor::MAX_TYPE_LENGTH),
+            'actor_id' => str_repeat('y', UsageActor::MAX_ID_LENGTH),
+            'credential_id' => str_repeat('z', UsageEvent::MAX_CREDENTIAL_ID_LENGTH),
+            'endpoint_key' => str_repeat('w', UsageEndpoint::MAX_KEY_LENGTH),
             'method' => 'GET',
             'total_requests' => 1,
         ]);
 
-        $this->assertSame($bucketKey, ApiUsageSummary::query()->value('bucket_key'));
+        $summary = ApiUsageSummary::query()->firstOrFail();
+
+        $this->assertSame(str_repeat('y', UsageActor::MAX_ID_LENGTH), $summary->actor_id);
+        $this->assertSame(str_repeat('z', UsageEvent::MAX_CREDENTIAL_ID_LENGTH), $summary->credential_id);
+    }
+
+    public function test_no_credential_is_stored_as_an_empty_string_and_read_back_as_null(): void
+    {
+        ApiUsageSummary::query()->create([
+            'period_type' => 'day',
+            'period_start' => '2026-06-17',
+            'actor_type' => 'user',
+            'actor_id' => '1',
+            'credential_id' => null,
+            'endpoint_key' => 'GET:api.orders.index',
+            'method' => 'GET',
+        ]);
+
+        $this->assertNull(ApiUsageSummary::query()->firstOrFail()->credential_id);
+        $this->assertSame('', ApiUsageSummary::query()->toBase()->value('credential_id'));
+    }
+
+    /**
+     * NULL is distinct from every other NULL in a unique index, which is why a
+     * missing credential is stored as an empty string instead.
+     */
+    public function test_two_rows_without_a_credential_still_collide(): void
+    {
+        $row = [
+            'period_type' => 'day',
+            'period_start' => '2026-06-17',
+            'actor_type' => 'user',
+            'actor_id' => '1',
+            'credential_id' => null,
+            'endpoint_key' => 'GET:api.orders.index',
+            'method' => 'GET',
+        ];
+
+        ApiUsageSummary::query()->create($row);
+
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+
+        ApiUsageSummary::query()->create($row);
     }
 
     public function test_table_names_are_configurable(): void

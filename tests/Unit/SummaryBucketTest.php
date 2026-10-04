@@ -12,8 +12,8 @@ class SummaryBucketTest extends TestCase
     {
         // Drivers return SUM() as strings, so the counters must be cast.
         $bucket = SummaryBucket::fromAggregate('day', '2026-06-17', (object) [
-            'actor_type' => 'user', 'actor_id' => '1', 'actor_key' => 'user:1', 'credential_id' => null,
-            'bucket_key' => 'user:1', 'endpoint_key' => 'GET:api.orders.index', 'method' => 'GET',
+            'actor_type' => 'user', 'actor_id' => '1', 'credential_id' => null,
+            'endpoint_key' => 'GET:api.orders.index', 'method' => 'GET',
             'route_name' => 'api.orders.index', 'route_uri' => '/api/orders',
             'total_requests' => '9', 'responses_1xx' => '1', 'responses_2xx' => '2', 'responses_3xx' => '1',
             'responses_4xx' => '2', 'responses_5xx' => '2', 'total_duration_ms' => '140',
@@ -26,7 +26,8 @@ class SummaryBucketTest extends TestCase
         $this->assertSame(10, $bucket['min_duration_ms']);
         $this->assertSame(90, $bucket['max_duration_ms']);
         $this->assertSame('day', $bucket['period_type']);
-        $this->assertSame('user:1|GET:api.orders.index', $bucket['bucket_key'].'|'.$bucket['endpoint_key']);
+        $this->assertSame('', $bucket['credential_id']);
+        $this->assertSame('GET:api.orders.index', $bucket['endpoint_key']);
         $this->assertSame('api.orders.index', $bucket['route_name']);
     }
 
@@ -71,8 +72,6 @@ class SummaryBucketTest extends TestCase
     private function bucket(): array
     {
         return SummaryBucket::make('day', '2026-06-17', [
-            'actor_key' => 'user:1',
-            'bucket_key' => 'user:1',
             'endpoint_key' => 'GET:api.orders.index',
             'method' => 'GET',
         ], Carbon::parse('2026-06-18 00:00:00', 'UTC'));

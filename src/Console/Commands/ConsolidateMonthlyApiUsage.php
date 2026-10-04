@@ -63,7 +63,12 @@ class ConsolidateMonthlyApiUsage extends Command
                 UsageConfig::consolidationChunkSize(),
                 function (Collection $summaries) use (&$buckets, $periodStart, $now): void {
                     foreach ($summaries as $summary) {
-                        $key = $summary->bucket_key.'|'.$summary->endpoint_key;
+                        $key = serialize([
+                            $summary->actor_type,
+                            $summary->actor_id,
+                            (string) $summary->credential_id,
+                            $summary->endpoint_key,
+                        ]);
 
                         $buckets[$key] ??= SummaryBucket::make(
                             ApiUsageSummary::PERIOD_MONTH,
@@ -71,9 +76,7 @@ class ConsolidateMonthlyApiUsage extends Command
                             [
                                 'actor_type' => $summary->actor_type,
                                 'actor_id' => $summary->actor_id,
-                                'actor_key' => $summary->actor_key,
                                 'credential_id' => $summary->credential_id,
-                                'bucket_key' => $summary->bucket_key,
                                 'endpoint_key' => $summary->endpoint_key,
                                 'method' => $summary->method,
                                 'route_name' => $summary->route_name,
@@ -96,7 +99,7 @@ class ConsolidateMonthlyApiUsage extends Command
         foreach (array_chunk(array_values($buckets), 500) as $chunk) {
             ApiUsageSummary::query()->upsert(
                 $chunk,
-                ['period_type', 'period_start', 'bucket_key', 'endpoint_key'],
+                SummaryBucket::IDENTITY_COLUMNS,
                 SummaryBucket::UPDATE_COLUMNS
             );
         }

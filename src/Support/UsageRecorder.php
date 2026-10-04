@@ -122,7 +122,7 @@ class UsageRecorder
             return null;
         }
 
-        $required = ['requested_at', 'actor_key', 'method', 'path', 'endpoint_key', 'status_code', 'duration_ms'];
+        $required = ['requested_at', 'actor_type', 'actor_id', 'method', 'path', 'endpoint_key', 'status_code', 'duration_ms'];
 
         foreach ($required as $field) {
             if (! isset($entry[$field]) || ! is_scalar($entry[$field])) {
@@ -130,16 +130,13 @@ class UsageRecorder
             }
         }
 
-        $actorKey = mb_substr((string) $entry['actor_key'], 0, UsageEvent::MAX_BUCKET_KEY_LENGTH);
         $credentialId = self::truncate(self::stringOrNull($entry['credential_id'] ?? null), UsageEvent::MAX_CREDENTIAL_ID_LENGTH);
 
         return [
             'requested_at' => (string) $entry['requested_at'],
-            'actor_type' => self::truncate(self::stringOrNull($entry['actor_type'] ?? null), UsageActor::MAX_TYPE_LENGTH),
-            'actor_id' => self::truncate(self::stringOrNull($entry['actor_id'] ?? null), UsageActor::MAX_ID_LENGTH),
-            'actor_key' => $actorKey,
+            'actor_type' => mb_substr((string) $entry['actor_type'], 0, UsageActor::MAX_TYPE_LENGTH),
+            'actor_id' => mb_substr((string) $entry['actor_id'], 0, UsageActor::MAX_ID_LENGTH),
             'credential_id' => $credentialId,
-            'bucket_key' => UsageEvent::bucketKeyFor($actorKey, $credentialId),
             'method' => mb_substr((string) $entry['method'], 0, UsageEndpoint::MAX_METHOD_LENGTH),
             'route_name' => self::truncate(self::stringOrNull($entry['route_name'] ?? null), UsageEndpoint::MAX_ROUTE_NAME_LENGTH),
             'route_uri' => self::truncate(self::stringOrNull($entry['route_uri'] ?? null), UsageEndpoint::MAX_ROUTE_URI_LENGTH),

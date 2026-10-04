@@ -158,8 +158,6 @@ class EndpointQueryTest extends TestCase
         return [
             'actor_type' => $type,
             'actor_id' => $id,
-            'actor_key' => $type.':'.$id,
-            'bucket_key' => $type.':'.$id,
         ];
     }
 
@@ -176,9 +174,7 @@ class EndpointQueryTest extends TestCase
             'period_start' => $date,
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
             'credential_id' => null,
-            'bucket_key' => 'guest',
             'endpoint_key' => $endpointKey,
             'method' => $method,
             'route_name' => $identity,

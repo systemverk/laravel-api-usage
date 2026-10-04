@@ -54,8 +54,8 @@ bodies. See [Out of scope](#what-this-package-deliberately-does-not-do).
 |---|---|
 | PHP | 8.2, 8.3, 8.4, 8.5 |
 | Laravel | 12.x, 13.x |
-| Redis client | `ext-redis` (recommended) or `predis/predis` |
-| Database | MySQL, MariaDB, PostgreSQL, SQLite, SQL Server |
+| Redis client | `ext-redis` (recommended) or `predis/predis`, for the default `redis` driver |
+| Database | MySQL 8, MariaDB 11, PostgreSQL 17 — the full suite runs against all three in CI. SQLite works for local development and tests, but serializes writes. SQL Server is not tested |
 
 ## Quick Start
 
@@ -77,9 +77,26 @@ to publish. Two tables are created:
 - `api_usage_requests` — one row per recorded request
 - `api_usage_summaries` — daily and monthly aggregates
 
-### 3. Make sure Redis is configured
+### 3. Choose a driver
 
-Requests are appended to a Redis list before being flushed to SQL.
+The `driver` setting decides how a finished request is stored. Both run after
+the response has been sent.
+
+| Driver | What it does | Use it when |
+|---|---|---|
+| `redis` (default) | Appends the request to a Redis list; `api-usage:flush` moves it into SQL in batches | The application has real traffic |
+| `database` | Inserts the request into SQL immediately. No Redis, no flush step | Small applications, or you cannot run Redis |
+
+The database driver costs **one `INSERT` per request** on your database, with its
+two indexes to maintain. For a small application that is negligible next to
+what the request itself already did; at sustained volume it becomes constant
+write load, and the Redis driver's batched inserts are far cheaper. If you use
+the database driver, point `API_USAGE_DB_CONNECTION` at a dedicated connection
+so usage writes never compete with the application's own. Switch with
+`API_USAGE_DRIVER=database`; no other change is needed, and the flush command is
+then no longer scheduled.
+
+#### Redis driver
 
 - A connection must exist under `database.redis` (or `database.redis.clusters`)
 - The package uses the `default` connection unless told otherwise
@@ -139,9 +156,10 @@ An entity usage is attributed to. The package never assumes it is a `User`:
 `user:42` · `organization:12` · `tenant:acme` · `api_key:abc123` ·
 `service_account:billing` · `guest`
 
-An actor has a **type** and an **id**, both stored as first-class columns, plus
-an `actor_key` (`type:id`) for convenient grouping. Ids are normalized to
-strings, so integer and UUID keys behave identically.
+An actor has a **type** and an **id**, stored as two columns. `UsageActor::key()`
+joins them as `type:id` (or `guest`) when you want one value to group or compare
+on, but that key is never stored. Ids are normalized to strings, so integer and
+UUID keys behave identically.
 
 ### Credential
 
@@ -378,6 +396,7 @@ php artisan vendor:publish --tag=api-usage-config
 | Key | Env | Default | Description |
 |---|---|---|---|
 | `enabled` | `API_USAGE_ENABLED` | `true` | Master on/off switch |
+| `driver` | `API_USAGE_DRIVER` | `redis` | `redis` (buffer, then flush) or `database` (one INSERT per request) |
 | `actor.resolver` | — | `AuthenticatedUserActorResolver` | Class deciding who a request belongs to |
 | `actor.track_guests` | `API_USAGE_TRACK_GUESTS` | `true` | Record unauthenticated traffic |
 | `actor.credential_resolver` | — | `null` | Callback resolving the credential used |
@@ -540,9 +559,9 @@ All timestamps are stored in **UTC**, independent of `app.timezone`.
 | Column | Notes |
 |---|---|
 | `requested_at` | UTC |
-| `actor_type`, `actor_id`, `actor_key` | Ids are strings; `actor_key` is `type:id` or `guest` |
+| `actor_type`, `actor_id` | Ids are strings; a guest is `guest` / `guest` |
 | `credential_id` | Nullable; whatever the credential resolver returned |
-| `bucket_key` | `actor_key`, plus `\|cred:{id}` when a credential is known |
+|cred:{id}` when a credential is known |
 | `method`, `route_name`, `route_uri`, `path` | `path` truncated to 1024 chars |
 | `endpoint_key` | `METHOD:route_name`, `METHOD:route_uri` or `METHOD:/path` |
 | `status_code`, `duration_ms` | |
@@ -562,20 +581,22 @@ own.
 
 ### `api_usage_summaries`
 
-One row per `(period_type, period_start, bucket_key, endpoint_key)` — the full
-aggregation identity, and the unique index consolidation upserts on.
+One row per `(period_type, period_start, actor_type, actor_id, credential_id,
+endpoint_key)` — the full aggregation identity, and the unique index
+consolidation upserts on.
 
 `period_type` is `day` or `month`. Alongside the counters
 (`total_requests`, `responses_1xx` … `responses_5xx`) each row carries
 `total_duration_ms`, `min_duration_ms` and `max_duration_ms`.
 
-`bucket_key` rather than `credential_id` carries the uniqueness on purpose: a
-nullable column in a unique index would defeat the upsert, because SQL treats
-every `NULL` as distinct and traffic without a credential would accumulate
-duplicate rows on every rerun. `actor_type`, `actor_id` and `credential_id` are
-still separate columns, so you filter on those, never by parsing a key. The
-unique index is the only one on this table; its leading `(period_type,
-period_start)` columns serve period scans and pruning.
+`credential_id` is `NOT NULL` here and holds an empty string when no credential
+was used, because a nullable column in a unique index would defeat the upsert:
+SQL treats every `NULL` as distinct, so traffic without a credential would
+accumulate duplicate rows on every rerun. `ApiUsageSummary` hides this: the
+attribute reads as `null` and accepts `null`. If you query the table directly,
+filter on `''` rather than `NULL`. The unique index is the only one on this
+table; its leading `(period_type, period_start)` columns serve period scans and
+pruning.
 
 ## What This Package Deliberately Does Not Do
 

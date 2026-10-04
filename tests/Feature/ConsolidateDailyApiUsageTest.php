@@ -85,8 +85,8 @@ class ConsolidateDailyApiUsageTest extends TestCase
 
         $this->consolidate();
 
-        $this->assertSame(2, ApiUsageSummary::query()->where('actor_key', 'guest')->value('total_requests'));
-        $this->assertSame(1, ApiUsageSummary::query()->where('actor_key', 'user:7')->value('total_requests'));
+        $this->assertSame(2, ApiUsageSummary::query()->where('actor_type', 'guest')->value('total_requests'));
+        $this->assertSame(1, ApiUsageSummary::query()->where('actor_type', 'user')->where('actor_id', '7')->value('total_requests'));
     }
 
     public function test_different_actor_types_never_collide(): void
@@ -97,8 +97,8 @@ class ConsolidateDailyApiUsageTest extends TestCase
         $this->consolidate();
 
         $this->assertSame(2, ApiUsageSummary::query()->count());
-        $this->assertSame(1, ApiUsageSummary::query()->where('actor_key', 'user:42')->value('total_requests'));
-        $this->assertSame(1, ApiUsageSummary::query()->where('actor_key', 'organization:42')->value('total_requests'));
+        $this->assertSame(1, ApiUsageSummary::query()->where('actor_type', 'user')->where('actor_id', '42')->value('total_requests'));
+        $this->assertSame(1, ApiUsageSummary::query()->where('actor_type', 'organization')->where('actor_id', '42')->value('total_requests'));
     }
 
     public function test_it_separates_credentials_belonging_to_the_same_actor(): void
@@ -110,9 +110,9 @@ class ConsolidateDailyApiUsageTest extends TestCase
 
         $this->consolidate();
 
-        $this->assertSame(2, ApiUsageSummary::query()->where('bucket_key', 'user:7|cred:1')->value('total_requests'));
-        $this->assertSame(1, ApiUsageSummary::query()->where('bucket_key', 'user:7|cred:2')->value('total_requests'));
-        $this->assertSame(1, ApiUsageSummary::query()->where('bucket_key', 'user:7')->value('total_requests'));
+        $this->assertSame(2, ApiUsageSummary::query()->where('actor_id', '7')->where('credential_id', '1')->value('total_requests'));
+        $this->assertSame(1, ApiUsageSummary::query()->where('actor_id', '7')->where('credential_id', '2')->value('total_requests'));
+        $this->assertSame(1, ApiUsageSummary::query()->where('actor_id', '7')->where('credential_id', '')->value('total_requests'));
 
         // The whole actor still rolls up.
         $this->assertSame(4, (int) ApiUsageSummary::query()->where('actor_id', '7')->sum('total_requests'));
@@ -299,9 +299,7 @@ class ConsolidateDailyApiUsageTest extends TestCase
         return [
             'actor_type' => $type,
             'actor_id' => $id,
-            'actor_key' => $actorKey,
             'credential_id' => $credentialId,
-            'bucket_key' => UsageEvent::bucketKeyFor($actorKey, $credentialId),
         ];
     }
 
@@ -327,9 +325,7 @@ class ConsolidateDailyApiUsageTest extends TestCase
             'requested_at' => '2026-06-17 12:00:00',
             'actor_type' => 'guest',
             'actor_id' => 'guest',
-            'actor_key' => 'guest',
             'credential_id' => null,
-            'bucket_key' => 'guest',
             'method' => 'GET',
             'route_name' => null,
             'route_uri' => null,

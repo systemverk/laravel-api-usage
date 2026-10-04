@@ -50,15 +50,14 @@ class ConsolidateDailyApiUsage extends Command
         $now = Carbon::now('UTC');
 
         // The database does the counting: one pass over the day's rows, and
-        // only one result row per actor/endpoint combination comes back. The
-        // identity columns are functionally dependent on the grouping key, so
-        // MIN() merely picks the (single) value rather than adding a dimension.
+        // only one result row per actor/credential/endpoint combination comes
+        // back. The method and route columns follow from the endpoint key, so
+        // MIN() merely picks their (single) value rather than adding a dimension.
         $rows = ApiUsageRequest::query()
             ->toBase()
             ->selectRaw(
-                'bucket_key, endpoint_key,
-                MIN(actor_type) as actor_type, MIN(actor_id) as actor_id, MIN(actor_key) as actor_key,
-                MIN(credential_id) as credential_id, MIN(method) as method,
+                'actor_type, actor_id, credential_id, endpoint_key,
+                MIN(method) as method,
                 MIN(route_name) as route_name, MIN(route_uri) as route_uri,
                 COUNT(*) as total_requests,
                 SUM(CASE WHEN status_code BETWEEN 100 AND 199 THEN 1 ELSE 0 END) as responses_1xx,
@@ -71,7 +70,7 @@ class ConsolidateDailyApiUsage extends Command
                 MAX(duration_ms) as max_duration_ms'
             )
             ->whereBetween('requested_at', [$date->startOfDay(), $date->endOfDay()])
-            ->groupBy('bucket_key', 'endpoint_key')
+            ->groupBy('actor_type', 'actor_id', 'credential_id', 'endpoint_key')
             ->get();
 
         if ($rows->isEmpty()) {
@@ -94,7 +93,7 @@ class ConsolidateDailyApiUsage extends Command
         foreach (array_chunk($buckets, 500) as $chunk) {
             ApiUsageSummary::query()->upsert(
                 $chunk,
-                ['period_type', 'period_start', 'bucket_key', 'endpoint_key'],
+                SummaryBucket::IDENTITY_COLUMNS,
                 SummaryBucket::UPDATE_COLUMNS
             );
         }

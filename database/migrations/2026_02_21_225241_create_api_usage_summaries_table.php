@@ -27,15 +27,14 @@ return new class extends Migration
             $table->string('period_type', 16);
             $table->date('period_start');
 
-            $table->string('actor_type', UsageActor::MAX_TYPE_LENGTH)->nullable();
-            $table->string('actor_id', UsageActor::MAX_ID_LENGTH)->nullable();
-            $table->string('actor_key', UsageEvent::MAX_BUCKET_KEY_LENGTH);
-            $table->string('credential_id', UsageEvent::MAX_CREDENTIAL_ID_LENGTH)->nullable();
+            $table->string('actor_type', UsageActor::MAX_TYPE_LENGTH);
+            $table->string('actor_id', UsageActor::MAX_ID_LENGTH);
 
-            // The actor key plus the credential, if any. Always non-null so it
-            // can carry the unique index: a nullable column there would defeat
-            // the upsert, since SQL treats every NULL as distinct.
-            $table->string('bucket_key', UsageEvent::MAX_BUCKET_KEY_LENGTH);
+            // Empty string, not NULL, when no credential was used: the column is
+            // part of the unique index below, and SQL treats every NULL as
+            // distinct, which would defeat the upsert. The model maps it back to
+            // null.
+            $table->string('credential_id', UsageEvent::MAX_CREDENTIAL_ID_LENGTH)->default('');
 
             $table->string('endpoint_key', UsageEndpoint::MAX_KEY_LENGTH);
             $table->string('method', UsageEndpoint::MAX_METHOD_LENGTH);
@@ -55,12 +54,16 @@ return new class extends Migration
 
             $table->timestamps();
 
-            // The complete aggregation identity: period, who, with which key,
-            // against which endpoint. Consolidation upserts on exactly this,
-            // and its `(period_type, period_start)` prefix also serves period
-            // scans and pruning, so no further index is needed.
+            // The complete aggregation identity: period, who, with which
+            // credential, against which endpoint. Consolidation upserts on exactly
+            // this, and its `(period_type, period_start)` prefix also serves period
+            // scans and pruning, so no further index is needed. Named explicitly
+            // to stay under MySQL's 64-character identifier limit.
             $table->unique(
-                ['period_type', 'period_start', 'bucket_key', 'endpoint_key'],
+                [
+                    'period_type', 'period_start', 'actor_type', 'actor_id',
+                    'credential_id', 'endpoint_key',
+                ],
                 $tableName.'_identity_unique'
             );
         });

@@ -42,7 +42,9 @@ class RecordApiUsageMiddlewareTest extends TestCase
 
         $this->assertSame('/api/orders', $entry['path']);
         $this->assertSame('GET:/api/orders', $entry['endpoint_key']);
-        $this->assertSame('guest', $entry['actor_key']);
+        $this->assertSame('guest', $entry['actor_type']);
+        $this->assertSame('guest', $entry['actor_id']);
+        $this->assertArrayNotHasKey('actor_key', $entry);
         $this->assertSame(201, $entry['status_code']);
     }
 
@@ -145,7 +147,7 @@ class RecordApiUsageMiddlewareTest extends TestCase
     {
         Log::shouldReceive('warning')
             ->once()
-            ->withArgs(fn (string $message, array $context) => str_contains($message, 'Failed to buffer')
+            ->withArgs(fn (string $message, array $context) => str_contains($message, 'Failed to record')
                 && $context['error'] === 'connection refused');
 
         $redis = new FakeRedisConnection;

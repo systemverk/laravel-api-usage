@@ -19,6 +19,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Driver
+    |--------------------------------------------------------------------------
+    |
+    | How a finished request is stored.
+    |
+    | "redis"    Appends the request to a Redis list after the response has been
+    |            sent; "api-usage:flush" moves it into SQL in batches. This is
+    |            the right choice for anything with real traffic.
+    |
+    | "database" Inserts the request into SQL right after the response has been
+    |            sent. No Redis, no flush step, one INSERT per request. Fine for
+    |            small applications; at volume it puts a write on your database
+    |            for every request. Prefer a dedicated connection under
+    |            "database.connection" below. Supported: MySQL/MariaDB and
+    |            PostgreSQL. SQLite works for local development but serializes
+    |            writes, so it suits neither traffic nor concurrency.
+    |
+    */
+
+    'driver' => env('API_USAGE_DRIVER', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Actor
     |--------------------------------------------------------------------------
     |
@@ -74,9 +97,11 @@ return [
     | Redis buffer
     |--------------------------------------------------------------------------
     |
-    | Requests are appended to a per-minute Redis list after the response has
-    | been sent, and flushed to SQL by the "api-usage:flush" command. The TTL is
-    | a safety net: it must comfortably exceed the flush interval.
+    | Used by the "redis" driver only. Requests are appended to a per-minute
+    | Redis list after the response has been sent, and flushed to SQL by the
+    | "api-usage:flush" command. The TTL is a safety net: a buffer that has not
+    | been flushed by then is lost, so it must comfortably exceed any outage of
+    | the scheduler.
     |
     */
 

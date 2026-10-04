@@ -27,6 +27,19 @@ final class SummaryBucket
     ];
 
     /**
+     * The columns that identify a summary row. They match the unique index
+     * consolidation upserts on, so a rerun replaces a row rather than adding one.
+     */
+    public const IDENTITY_COLUMNS = [
+        'period_type',
+        'period_start',
+        'actor_type',
+        'actor_id',
+        'credential_id',
+        'endpoint_key',
+    ];
+
+    /**
      * Columns refreshed when an existing row is upserted.
      *
      * Consolidation always recomputes a period from scratch, so refreshing
@@ -42,10 +55,6 @@ final class SummaryBucket
         'total_duration_ms',
         'min_duration_ms',
         'max_duration_ms',
-        'actor_type',
-        'actor_id',
-        'actor_key',
-        'credential_id',
         'method',
         'route_name',
         'route_uri',
@@ -61,11 +70,9 @@ final class SummaryBucket
         return [
             'period_type' => $periodType,
             'period_start' => $periodStart,
-            'actor_type' => $identity['actor_type'] ?? null,
-            'actor_id' => $identity['actor_id'] ?? null,
-            'actor_key' => (string) ($identity['actor_key'] ?? ''),
-            'credential_id' => $identity['credential_id'] ?? null,
-            'bucket_key' => (string) ($identity['bucket_key'] ?? ''),
+            'actor_type' => (string) ($identity['actor_type'] ?? ''),
+            'actor_id' => (string) ($identity['actor_id'] ?? ''),
+            'credential_id' => (string) ($identity['credential_id'] ?? ''),
             'endpoint_key' => (string) ($identity['endpoint_key'] ?? ''),
             'method' => (string) ($identity['method'] ?? ''),
             'route_name' => $identity['route_name'] ?? null,

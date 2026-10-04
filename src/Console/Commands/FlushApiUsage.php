@@ -45,6 +45,12 @@ class FlushApiUsage extends Command
             return self::SUCCESS;
         }
 
+        if (! UsageConfig::usesRedis()) {
+            $this->info('The database driver writes requests directly; there is nothing to flush.');
+
+            return self::SUCCESS;
+        }
+
         $recovered = $this->recoverAbandonedBuffers();
         $flushed = 0;
 

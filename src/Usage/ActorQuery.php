@@ -47,7 +47,7 @@ class ActorQuery extends PeriodQuery
      */
     private function ordered(string $column, ?int $limit): array
     {
-        $groupBy = ['actor_type', 'actor_id', 'actor_key'];
+        $groupBy = ['actor_type', 'actor_id'];
 
         $select = array_merge($groupBy, $this->totalsSelect(), [
             '(sum(responses_4xx) + sum(responses_5xx)) as error_responses',
@@ -57,9 +57,10 @@ class ActorQuery extends PeriodQuery
         $query = $this->baseQuery()
             ->selectRaw(implode(', ', $select))
             ->groupBy($groupBy)
-            // actor_key breaks ties so that ordering is stable.
+            // The type and id break ties so that ordering is stable.
             ->orderByDesc($column)
-            ->orderBy('actor_key');
+            ->orderBy('actor_type')
+            ->orderBy('actor_id');
 
         if ($limit !== null) {
             $query->limit(max(1, $limit));

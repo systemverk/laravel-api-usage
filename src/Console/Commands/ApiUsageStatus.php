@@ -37,16 +37,19 @@ class ApiUsageStatus extends Command
      */
     public function handle(): int
     {
-        $redis = $this->redisStatus();
+        $redis = UsageConfig::usesRedis()
+            ? $this->redisStatus()
+            : ['status' => 'not used', 'pending' => 'n/a', 'processing' => 'n/a'];
         $database = $this->databaseStatus();
 
         $this->table(['Setting', 'Value'], [
             ['Enabled', UsageConfig::enabled() ? 'yes' : 'no'],
+            ['Driver', UsageConfig::driver()],
             ['Sampling rate', (string) UsageConfig::samplingRate()],
             ['Track guests', UsageConfig::trackGuests() ? 'yes' : 'no'],
             ['Actor resolver', UsageConfig::actorResolver()],
             ['Endpoint resolver', UsageConfig::endpointResolver()],
-            ['Redis connection', UsageConfig::redisConnection().' — '.$redis['status']],
+            ['Redis connection', UsageConfig::usesRedis() ? UsageConfig::redisConnection().' — '.$redis['status'] : 'not used'],
             ['Pending buffer', $redis['pending']],
             ['Processing buffer', $redis['processing']],
             ['Database connection', (UsageConfig::databaseConnection() ?? 'default').' — '.$database['status']],

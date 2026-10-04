@@ -74,3 +74,79 @@ jobs:
 
       - name: Run tests
         run: composer test
+
+  database:
+    name: ${{ matrix.name }} / Laravel ${{ matrix.laravel }}
+    runs-on: ubuntu-latest
+    needs: static-analysis
+
+    # SQLite cannot vouch for the consolidation SQL or the width of the unique
+    # index, so the whole suite also runs against the databases the package
+    # supports: MySQL, MariaDB and PostgreSQL.
+    strategy:
+      fail-fast: false
+      matrix:
+        laravel: ['12.*', '13.*']
+        include:
+          - name: MySQL 8.4
+            driver: mysql
+            port: 3306
+            start: >-
+              docker run -d --name db -p 3306:3306
+              -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=api_usage_test
+              mysql:8.4
+            ready: mysqladmin ping -h 127.0.0.1 -psecret
+          - name: MariaDB 11
+            driver: mysql
+            port: 3306
+            start: >-
+              docker run -d --name db -p 3306:3306
+              -e MARIADB_ROOT_PASSWORD=secret -e MARIADB_DATABASE=api_usage_test
+              mariadb:11
+            ready: healthcheck.sh --connect --innodb_initialized
+          - name: PostgreSQL 17
+            driver: pgsql
+            port: 5432
+            start: >-
+              docker run -d --name db -p 5432:5432
+              -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=api_usage_test
+              postgres:17
+            ready: pg_isready
+
+    env:
+      TEST_DB_DRIVER: ${{ matrix.driver }}
+      TEST_DB_PORT: ${{ matrix.port }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start database
+        run: |
+          ${{ matrix.start }}
+          for i in $(seq 1 60); do
+            docker exec db ${{ matrix.ready }} >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          docker logs db
+          exit 1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, mbstring
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer require "illuminate/console:${{ matrix.laravel }}" \
+                           "illuminate/contracts:${{ matrix.laravel }}" \
+                           "illuminate/database:${{ matrix.laravel }}" \
+                           "illuminate/http:${{ matrix.laravel }}" \
+                           "illuminate/redis:${{ matrix.laravel }}" \
+                           "illuminate/support:${{ matrix.laravel }}" \
+                           --no-interaction --no-update
+          composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Run tests
+        run: composer test

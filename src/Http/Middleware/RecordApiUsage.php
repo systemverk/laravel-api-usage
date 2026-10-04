@@ -24,8 +24,8 @@ class RecordApiUsage
      * Handle an incoming request.
      *
      * The request is only timestamped here; the actual buffering happens in
-     * terminate() so that neither actor resolution nor the two Redis round
-     * trips sit on the critical path of the response.
+     * terminate() so that neither actor resolution nor the Redis write sit on
+     * the critical path of the response.
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
@@ -68,8 +68,17 @@ class RecordApiUsage
             $key = BufferKeys::currentMinute();
 
             $redis = Redis::connection($connection);
-            $redis->rpush($key, $serialized);
-            $redis->expire($key, UsageConfig::redisTtlSeconds());
+
+            // Only the request that creates the minute's list has to register
+            // it and give it a TTL. Every later request costs a single round
+            // trip, and a list can never be left behind without an expiry by
+            // a failure between two unconditional commands. The flush command
+            // removes the registration before it claims a buffer, so the first
+            // request after a claim registers the fresh list again.
+            if ((int) $redis->rpush($key, $serialized) === 1) {
+                $redis->sadd(BufferKeys::pendingRegistry(), $key);
+                $redis->expire($key, UsageConfig::redisTtlSeconds());
+            }
         } catch (\Throwable $exception) {
             $this->reportSilently($exception);
         }

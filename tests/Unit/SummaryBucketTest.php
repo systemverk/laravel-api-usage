@@ -8,65 +8,26 @@ use Systemverk\LaravelApiUsage\Support\SummaryBucket;
 
 class SummaryBucketTest extends TestCase
 {
-    public function test_it_counts_every_status_class(): void
+    public function test_an_aggregated_row_becomes_a_bucket_with_integer_counters(): void
     {
-        $bucket = $this->bucket();
-
-        foreach ([100, 200, 201, 301, 404, 422, 500, 503, 799] as $status) {
-            SummaryBucket::addRequest($bucket, $status, 10);
-        }
+        // Drivers return SUM() as strings, so the counters must be cast.
+        $bucket = SummaryBucket::fromAggregate('day', '2026-06-17', (object) [
+            'actor_type' => 'user', 'actor_id' => '1', 'actor_key' => 'user:1', 'credential_id' => null,
+            'bucket_key' => 'user:1', 'endpoint_key' => 'GET:api.orders.index', 'method' => 'GET',
+            'route_name' => 'api.orders.index', 'route_uri' => '/api/orders',
+            'total_requests' => '9', 'responses_1xx' => '1', 'responses_2xx' => '2', 'responses_3xx' => '1',
+            'responses_4xx' => '2', 'responses_5xx' => '2', 'total_duration_ms' => '140',
+            'min_duration_ms' => '10', 'max_duration_ms' => '90',
+        ], Carbon::parse('2026-06-18 00:00:00', 'UTC'));
 
         $this->assertSame(9, $bucket['total_requests']);
-        $this->assertSame(1, $bucket['responses_1xx']);
-        $this->assertSame(2, $bucket['responses_2xx']);
-        $this->assertSame(1, $bucket['responses_3xx']);
-        $this->assertSame(2, $bucket['responses_4xx']);
         $this->assertSame(2, $bucket['responses_5xx']);
-    }
-
-    public function test_a_status_outside_the_known_classes_still_counts_towards_the_total(): void
-    {
-        $bucket = $this->bucket();
-
-        SummaryBucket::addRequest($bucket, 799, 5);
-
-        $this->assertSame(1, $bucket['total_requests']);
-        $this->assertSame(0, array_sum([
-            $bucket['responses_1xx'], $bucket['responses_2xx'], $bucket['responses_3xx'],
-            $bucket['responses_4xx'], $bucket['responses_5xx'],
-        ]));
-    }
-
-    public function test_it_tracks_duration_totals_and_extremes(): void
-    {
-        $bucket = $this->bucket();
-
-        foreach ([40, 10, 90] as $duration) {
-            SummaryBucket::addRequest($bucket, 200, $duration);
-        }
-
         $this->assertSame(140, $bucket['total_duration_ms']);
         $this->assertSame(10, $bucket['min_duration_ms']);
         $this->assertSame(90, $bucket['max_duration_ms']);
-    }
-
-    public function test_the_first_request_sets_the_minimum_rather_than_leaving_it_at_zero(): void
-    {
-        $bucket = $this->bucket();
-
-        SummaryBucket::addRequest($bucket, 200, 55);
-
-        $this->assertSame(55, $bucket['min_duration_ms']);
-    }
-
-    public function test_negative_durations_are_clamped(): void
-    {
-        $bucket = $this->bucket();
-
-        SummaryBucket::addRequest($bucket, 200, -17);
-
-        $this->assertSame(0, $bucket['total_duration_ms']);
-        $this->assertSame(0, $bucket['min_duration_ms']);
+        $this->assertSame('day', $bucket['period_type']);
+        $this->assertSame('user:1|GET:api.orders.index', $bucket['bucket_key'].'|'.$bucket['endpoint_key']);
+        $this->assertSame('api.orders.index', $bucket['route_name']);
     }
 
     public function test_it_folds_aggregated_rows_together(): void

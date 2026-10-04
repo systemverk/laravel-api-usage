@@ -137,11 +137,11 @@ class ApiUsageServiceProvider extends ServiceProvider
         }
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-            $flushMinutes = max(1, (int) config('api_usage.schedule.flush_minutes', 5));
-
-            $schedule->command(FlushApiUsage::class, ["--max-minutes={$flushMinutes}"])
-                ->everyMinute()
-                ->withoutOverlapping();
+            // Deliberately not withoutOverlapping(): its mutex lasts 24 hours by
+            // default, so one killed run (a deploy, an OOM) would stop flushing
+            // for a day. Overlap is harmless here, because every buffer is
+            // claimed atomically and guarded by its own expiring lock.
+            $schedule->command(FlushApiUsage::class)->everyMinute();
 
             // The query API reads summaries, so today's numbers are only as
             // fresh as the most recent consolidation of the current day.

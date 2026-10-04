@@ -71,17 +71,22 @@ class ApiUsageStatus extends Command
         try {
             $connection = Redis::connection(UsageConfig::redisConnection());
 
-            // Only the current and previous minute are counted: scanning every
-            // buffer key would mean a KEYS call, which is exactly what a status
-            // command must not do to a production Redis.
-            $pending = (int) $connection->llen(BufferKeys::currentMinute())
-                + (int) $connection->llen(BufferKeys::forMinute(now()->utc()->subMinute()));
+            // The registry names every unclaimed buffer, so no KEYS scan is
+            // needed to count what is waiting.
+            $buffers = $connection->smembers(BufferKeys::pendingRegistry());
+            $buffers = is_array($buffers) ? $buffers : [];
+
+            $pending = 0;
+
+            foreach ($buffers as $buffer) {
+                $pending += (int) $connection->llen((string) $buffer);
+            }
 
             $processing = $connection->smembers(BufferKeys::processingRegistry());
 
             return [
                 'status' => 'connected',
-                'pending' => $pending.' events (last two minutes)',
+                'pending' => $pending.' events in '.count($buffers).' buffers',
                 'processing' => is_array($processing) ? count($processing).' claimed buffers' : 'unknown',
             ];
         } catch (\Throwable $exception) {

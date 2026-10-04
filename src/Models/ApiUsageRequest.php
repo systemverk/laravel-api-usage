@@ -36,6 +36,10 @@ class ApiUsageRequest extends Model
 {
     protected $guarded = [];
 
+    // Rows are written once and never touched again, and `requested_at` is the
+    // moment that matters, so there is nothing for created_at/updated_at to add.
+    public $timestamps = false;
+
     protected $casts = [
         'requested_at' => 'datetime',
         'status_code' => 'integer',

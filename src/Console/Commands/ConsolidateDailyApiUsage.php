@@ -4,7 +4,6 @@ namespace Systemverk\LaravelApiUsage\Console\Commands;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 use Systemverk\LaravelApiUsage\Models\ApiUsageRequest;
@@ -47,59 +46,52 @@ class ConsolidateDailyApiUsage extends Command
             return self::FAILURE;
         }
 
-        /** @var array<string, array<string, mixed>> $buckets */
-        $buckets = [];
         $periodStart = $date->toDateString();
         $now = Carbon::now('UTC');
 
-        ApiUsageRequest::query()
-            ->select([
-                'id', 'actor_type', 'actor_id', 'actor_key', 'credential_id', 'bucket_key',
-                'endpoint_key', 'method', 'route_name', 'route_uri', 'status_code', 'duration_ms',
-            ])
+        // The database does the counting: one pass over the day's rows, and
+        // only one result row per actor/endpoint combination comes back. The
+        // identity columns are functionally dependent on the grouping key, so
+        // MIN() merely picks the (single) value rather than adding a dimension.
+        $rows = ApiUsageRequest::query()
+            ->toBase()
+            ->selectRaw(
+                'bucket_key, endpoint_key,
+                MIN(actor_type) as actor_type, MIN(actor_id) as actor_id, MIN(actor_key) as actor_key,
+                MIN(credential_id) as credential_id, MIN(method) as method,
+                MIN(route_name) as route_name, MIN(route_uri) as route_uri,
+                COUNT(*) as total_requests,
+                SUM(CASE WHEN status_code BETWEEN 100 AND 199 THEN 1 ELSE 0 END) as responses_1xx,
+                SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) as responses_2xx,
+                SUM(CASE WHEN status_code BETWEEN 300 AND 399 THEN 1 ELSE 0 END) as responses_3xx,
+                SUM(CASE WHEN status_code BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as responses_4xx,
+                SUM(CASE WHEN status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END) as responses_5xx,
+                SUM(duration_ms) as total_duration_ms,
+                MIN(duration_ms) as min_duration_ms,
+                MAX(duration_ms) as max_duration_ms'
+            )
             ->whereBetween('requested_at', [$date->startOfDay(), $date->endOfDay()])
-            ->orderBy('id')
-            ->chunkById(
-                UsageConfig::consolidationChunkSize(),
-                function (Collection $requests) use (&$buckets, $periodStart, $now): void {
-                    foreach ($requests as $request) {
-                        $key = $request->bucket_key.'|'.$request->endpoint_key;
+            ->groupBy('bucket_key', 'endpoint_key')
+            ->get();
 
-                        $buckets[$key] ??= SummaryBucket::make(
-                            ApiUsageSummary::PERIOD_DAY,
-                            $periodStart,
-                            [
-                                'actor_type' => $request->actor_type,
-                                'actor_id' => $request->actor_id,
-                                'actor_key' => $request->actor_key,
-                                'credential_id' => $request->credential_id,
-                                'bucket_key' => $request->bucket_key,
-                                'endpoint_key' => $request->endpoint_key,
-                                'method' => $request->method,
-                                'route_name' => $request->route_name,
-                                'route_uri' => $request->route_uri,
-                            ],
-                            $now
-                        );
-
-                        SummaryBucket::addRequest(
-                            $buckets[$key],
-                            (int) $request->status_code,
-                            (int) $request->duration_ms
-                        );
-                    }
-                }
-            );
-
-        if ($buckets === []) {
+        if ($rows->isEmpty()) {
             $this->info('No API usage found for the consolidation window.');
 
             return self::SUCCESS;
         }
 
+        $buckets = $rows
+            ->map(fn (object $row): array => SummaryBucket::fromAggregate(
+                ApiUsageSummary::PERIOD_DAY,
+                $periodStart,
+                $row,
+                $now
+            ))
+            ->all();
+
         // Chunked so that a busy day with many actor/endpoint combinations does
         // not build a single oversized upsert statement.
-        foreach (array_chunk(array_values($buckets), 500) as $chunk) {
+        foreach (array_chunk($buckets, 500) as $chunk) {
             ApiUsageSummary::query()->upsert(
                 $chunk,
                 ['period_type', 'period_start', 'bucket_key', 'endpoint_key'],

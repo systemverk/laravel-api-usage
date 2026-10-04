@@ -28,9 +28,12 @@ class ApiUsageStatusTest extends TestCase
     {
         $redis = $this->fakeRedis();
         $redis->rpush(BufferKeys::currentMinute(), 'a', 'b', 'c');
+        $redis->sadd(BufferKeys::pendingRegistry(), BufferKeys::currentMinute());
+        $redis->rpush(BufferKeys::forMinute(now()->utc()->subHours(2)), 'd');
+        $redis->sadd(BufferKeys::pendingRegistry(), BufferKeys::forMinute(now()->utc()->subHours(2)));
 
         $this->artisan('api-usage:status')
-            ->expectsOutputToContain('3 events')
+            ->expectsOutputToContain('4 events in 2 buffers')
             ->assertExitCode(0);
     }
 
@@ -47,7 +50,7 @@ class ApiUsageStatusTest extends TestCase
     public function test_it_survives_an_unreachable_redis(): void
     {
         $redis = new FakeRedisConnection;
-        $redis->failOn('llen', new \RuntimeException('connection refused'));
+        $redis->failOn('smembers', new \RuntimeException('connection refused'));
         Redis::shouldReceive('connection')->andReturn($redis);
 
         $this->artisan('api-usage:status')

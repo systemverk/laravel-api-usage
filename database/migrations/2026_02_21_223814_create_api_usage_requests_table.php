@@ -46,7 +46,6 @@ return new class extends Migration
             $table->string('ip_hash', UsageEvent::MAX_IP_HASH_LENGTH)->nullable();
             $table->string('user_agent', UsageEvent::MAX_USER_AGENT_LENGTH)->nullable();
             $table->string('request_id', UsageEvent::MAX_REQUEST_ID_LENGTH)->nullable();
-            $table->timestamps();
 
             // This table takes an insert per API request, so it carries only
             // the indexes the package itself reads through: `requested_at`

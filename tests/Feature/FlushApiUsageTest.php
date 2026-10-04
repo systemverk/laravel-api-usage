@@ -77,18 +77,27 @@ class FlushApiUsageTest extends TestCase
         $this->assertSame('api.orders.show', $row->route_name);
     }
 
-    public function test_it_scans_the_configured_number_of_minutes_backwards(): void
+    /**
+     * An outage must not strand data: a buffer is flushed no matter how many
+     * minutes ago it was written, because the registry names it.
+     */
+    public function test_it_flushes_buffers_from_any_minute_however_old(): void
     {
         $this->buffer(BufferKeys::forMinute(Carbon::now('UTC')->subMinutes(3)), [$this->entry()]);
-        $this->buffer(BufferKeys::forMinute(Carbon::now('UTC')->subMinutes(9)), [$this->entry()]);
+        $this->buffer(BufferKeys::forMinute(Carbon::now('UTC')->subHours(1)), [$this->entry()]);
 
-        $this->artisan('api-usage:flush', ['--max-minutes' => 5])->assertExitCode(0);
-
-        $this->assertSame(1, ApiUsageRequest::query()->count());
-
-        $this->artisan('api-usage:flush', ['--max-minutes' => 15])->assertExitCode(0);
+        $this->artisan('api-usage:flush')->assertExitCode(0);
 
         $this->assertSame(2, ApiUsageRequest::query()->count());
+    }
+
+    public function test_it_ignores_buffers_that_were_never_registered(): void
+    {
+        $this->redis->rpush(BufferKeys::currentMinute(), $this->entry());
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame(0, ApiUsageRequest::query()->count());
     }
 
     public function test_it_removes_the_buffer_after_a_successful_write(): void
@@ -100,6 +109,69 @@ class FlushApiUsageTest extends TestCase
 
         $this->assertArrayNotHasKey($key, $this->redis->store);
         $this->assertSame([], $this->redis->smembers(BufferKeys::processingRegistry()));
+        $this->assertSame([], $this->redis->smembers(BufferKeys::pendingRegistry()));
+    }
+
+    public function test_a_registration_whose_buffer_has_expired_is_dropped(): void
+    {
+        $this->redis->sadd(BufferKeys::pendingRegistry(), BufferKeys::currentMinute());
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame([], $this->redis->smembers(BufferKeys::pendingRegistry()));
+    }
+
+    /**
+     * A buffer that could not be claimed has to stay visible to the next run.
+     */
+    public function test_a_failed_claim_leaves_the_buffer_registered(): void
+    {
+        Log::shouldReceive('error')->once();
+
+        $key = BufferKeys::currentMinute();
+        $this->buffer($key, [$this->entry()]);
+        $this->redis->failOn('renamenx', new \RuntimeException('connection reset'));
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame([$key], $this->redis->smembers(BufferKeys::pendingRegistry()));
+        $this->assertArrayHasKey($key, $this->redis->store);
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame(1, ApiUsageRequest::query()->count());
+    }
+
+    /**
+     * Chunks are inserted inside one transaction. Without it, a failure on the
+     * second chunk keeps the first one, and the retry inserts it again.
+     */
+    public function test_a_failure_part_way_through_a_buffer_writes_nothing_and_retries_cleanly(): void
+    {
+        Log::shouldReceive('error')->once();
+        config()->set('api_usage.buffer.flush_batch_size', 2);
+
+        $this->buffer(BufferKeys::currentMinute(), [
+            $this->entry(), $this->entry(), $this->entry(), $this->entry(), $this->entry(),
+        ]);
+
+        $inserts = 0;
+        DB::listen(function (QueryExecuted $query) use (&$inserts): void {
+            if (str_starts_with(strtolower(trim($query->sql)), 'insert') && ++$inserts === 2) {
+                throw new \RuntimeException('deadlock found');
+            }
+        });
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame(0, ApiUsageRequest::query()->count(), 'The first chunk must be rolled back.');
+
+        $registry = $this->redis->smembers(BufferKeys::processingRegistry());
+        $this->redis->del(BufferKeys::lockFor($registry[0]));
+
+        $this->artisan('api-usage:flush')->assertExitCode(0);
+
+        $this->assertSame(5, ApiUsageRequest::query()->count());
     }
 
     public function test_a_buffer_that_expires_mid_flush_does_not_crash_the_command(): void
@@ -292,6 +364,7 @@ class FlushApiUsageTest extends TestCase
     private function buffer(string $key, array $entries): void
     {
         $this->redis->rpush($key, ...$entries);
+        $this->redis->sadd(BufferKeys::pendingRegistry(), $key);
     }
 
     /**

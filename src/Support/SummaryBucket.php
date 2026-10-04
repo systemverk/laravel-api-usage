@@ -7,8 +7,9 @@ use Illuminate\Support\Carbon;
 /**
  * Shared shape of an aggregated usage row.
  *
- * Both consolidation commands build the same rows — one from raw requests, one
- * from daily summaries — so the column list lives in a single place.
+ * Both consolidation commands build the same rows — one from raw requests
+ * aggregated by the database, one from daily summaries — so the column list
+ * lives in a single place.
  */
 final class SummaryBucket
 {
@@ -84,35 +85,27 @@ final class SummaryBucket
     }
 
     /**
-     * Fold one raw request into a bucket.
+     * Build a bucket from a row the database has already aggregated.
      *
-     * Codes outside 100-599 still count towards the total so that it always
-     * reflects the number of requests, even when a class bucket is missing.
+     * The row carries the identity columns plus every counter, and the totals
+     * are authoritative: codes outside 100-599 count towards `total_requests`
+     * without belonging to a class column. Drivers differ on whether SUM()
+     * comes back as an int or a string, hence the casts.
      *
-     * @param  array<string, mixed>  $bucket
+     * @return array<string, mixed>
      */
-    public static function addRequest(array &$bucket, int $statusCode, int $durationMs): void
+    public static function fromAggregate(string $periodType, string $periodStart, object $row, Carbon $now): array
     {
-        $durationMs = max(0, $durationMs);
-        $first = $bucket['total_requests'] === 0;
+        $bucket = self::make($periodType, $periodStart, (array) $row, $now);
 
-        $bucket['total_requests']++;
-        $bucket['total_duration_ms'] += $durationMs;
-        $bucket['min_duration_ms'] = $first ? $durationMs : min((int) $bucket['min_duration_ms'], $durationMs);
-        $bucket['max_duration_ms'] = max((int) $bucket['max_duration_ms'], $durationMs);
-
-        $column = match (intdiv($statusCode, 100)) {
-            1 => 'responses_1xx',
-            2 => 'responses_2xx',
-            3 => 'responses_3xx',
-            4 => 'responses_4xx',
-            5 => 'responses_5xx',
-            default => null,
-        };
-
-        if ($column !== null) {
-            $bucket[$column]++;
+        foreach (self::COUNTERS as $column) {
+            $bucket[$column] = (int) ($row->{$column} ?? 0);
         }
+
+        $bucket['min_duration_ms'] = (int) ($row->min_duration_ms ?? 0);
+        $bucket['max_duration_ms'] = (int) ($row->max_duration_ms ?? 0);
+
+        return $bucket;
     }
 
     /**

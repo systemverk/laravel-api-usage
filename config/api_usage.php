@@ -220,7 +220,6 @@ return [
 
     'schedule' => [
         'enabled' => env('API_USAGE_SCHEDULE_ENABLED', true),
-        'flush_minutes' => (int) env('API_USAGE_SCHEDULE_FLUSH_MINUTES', 5),
         'consolidate_today' => env('API_USAGE_SCHEDULE_CONSOLIDATE_TODAY', true),
         'daily_at' => env('API_USAGE_SCHEDULE_DAILY_AT', '02:00'),
         'monthly_at' => env('API_USAGE_SCHEDULE_MONTHLY_AT', '03:00'),

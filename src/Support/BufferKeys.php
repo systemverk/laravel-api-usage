@@ -24,6 +24,18 @@ final class BufferKeys
     }
 
     /**
+     * Set of minute buffers that hold events and have not been claimed yet.
+     *
+     * The middleware registers a minute when it creates its list, so the flush
+     * command finds every buffer however long it was away, instead of having to
+     * guess how many minutes back to look.
+     */
+    public static function pendingRegistry(): string
+    {
+        return UsageConfig::redisKeyPrefix().'pending';
+    }
+
+    /**
      * Set tracking buffers that have been claimed for flushing but not yet
      * confirmed written to the database, so a crashed flush can be retried.
      */

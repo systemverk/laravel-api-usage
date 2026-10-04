@@ -119,10 +119,12 @@ flowchart LR
 
 The important property is where the line falls: **nothing between the request
 arriving and the response leaving touches SQL.** Actor resolution, endpoint
-resolution, serialization and the two Redis round trips all happen in
-`terminate()`, after the client already has its response.
+resolution, serialization and the Redis write all happen in `terminate()`, after
+the client already has its response.
 
-Failure is handled the same way at every step. A minute buffer is claimed with
+Failure is handled the same way at every step. The first request of each minute
+registers that minute's buffer in a Redis set, so a flush finds every buffer
+however long it was away. A minute buffer is claimed with
 `RENAMENX` into a private processing key, tracked in a Redis set, and only
 deleted once the database write is confirmed — so a crashed or failed flush is
 retried on the next run instead of silently losing entries. See
@@ -352,7 +354,7 @@ schema may change in a future major version.
 
 | Command | Frequency | Purpose |
 |---|---|---|
-| `api-usage:flush --max-minutes=5` | every minute | Redis buffer → `api_usage_requests` |
+| `api-usage:flush` | every minute | Redis buffer → `api_usage_requests` |
 | `api-usage:consolidate-daily --today` | hourly | Keeps today's summaries fresh |
 | `api-usage:consolidate-daily` | daily at 02:00 | Yesterday's raw rows → daily summaries |
 | `api-usage:consolidate-monthly` | monthly on day 1 at 03:00 | Daily → monthly summaries |
@@ -387,7 +389,7 @@ php artisan vendor:publish --tag=api-usage-config
 | `database.connection` | `API_USAGE_DB_CONNECTION` | `null` | Dedicated connection, or the app default |
 | `database.tables.requests` | `API_USAGE_TABLE_REQUESTS` | `api_usage_requests` | Raw table name |
 | `database.tables.summaries` | `API_USAGE_TABLE_SUMMARIES` | `api_usage_summaries` | Aggregate table name |
-| `database.consolidation_chunk_size` | `API_USAGE_CONSOLIDATION_CHUNK_SIZE` | `2000` | Read chunk size during rollup |
+| `database.consolidation_chunk_size` | `API_USAGE_CONSOLIDATION_CHUNK_SIZE` | `2000` | Read chunk size during the monthly rollup |
 | `sampling.rate` | `API_USAGE_SAMPLING_RATE` | `1.0` | Fraction of requests recorded |
 | `except` | — | `['up', 'health']` | Paths never recorded (supports `*`) |
 | `privacy.hash_ips` | `API_USAGE_HASH_IPS` | `true` | Store a salted hash, or nothing at all |
@@ -400,7 +402,6 @@ php artisan vendor:publish --tag=api-usage-config
 | `middleware.auto_register` | `API_USAGE_AUTO_MIDDLEWARE` | `true` | Auto-append the middleware |
 | `middleware.group` | `API_USAGE_MIDDLEWARE_GROUP` | `api` | Group to append the middleware to |
 | `schedule.enabled` | `API_USAGE_SCHEDULE_ENABLED` | `true` | Auto-register scheduled commands |
-| `schedule.flush_minutes` | `API_USAGE_SCHEDULE_FLUSH_MINUTES` | `5` | `--max-minutes` used by flush |
 | `schedule.consolidate_today` | `API_USAGE_SCHEDULE_CONSOLIDATE_TODAY` | `true` | Hourly refresh of today |
 | `schedule.daily_at` | `API_USAGE_SCHEDULE_DAILY_AT` | `02:00` | Daily consolidation time |
 | `schedule.monthly_at` | `API_USAGE_SCHEDULE_MONTHLY_AT` | `03:00` | Monthly consolidation time |
@@ -473,6 +474,8 @@ Two things to be aware of:
   The failure is logged at warning level; the response is unaffected.
 - **Redis loses data** (eviction, flush, failover to an empty replica) before a
   flush. Those buffered events are gone.
+- **Flushing is down for longer than `buffer.ttl_seconds`** (two hours by
+  default). Buffers that have not been flushed by then expire in Redis.
 - **A resolver throws.** An actor resolver failure drops that one record rather
   than misfiling it; an endpoint resolver failure falls back to the raw path and
   keeps the record.
@@ -519,7 +522,9 @@ use Systemverk\LaravelApiUsage\Http\Middleware\RecordApiUsage;
 // routes/console.php
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('api-usage:flush --max-minutes=5')->everyMinute()->withoutOverlapping();
+// No withoutOverlapping() on flush: its default mutex lasts 24 hours, and
+// overlapping runs are safe because every buffer is claimed atomically.
+Schedule::command('api-usage:flush')->everyMinute();
 Schedule::command('api-usage:consolidate-daily --today')->hourly()->withoutOverlapping();
 Schedule::command('api-usage:consolidate-daily')->dailyAt('02:00');
 Schedule::command('api-usage:consolidate-monthly')->monthlyOn(1, '03:00');
@@ -545,12 +550,15 @@ All timestamps are stored in **UTC**, independent of `app.timezone`.
 | `user_agent` | Truncated to 512 chars, or null |
 | `request_id` | First matching correlation header, 64 chars |
 
-Indexed on `(actor_type, actor_id, requested_at, status_code)` for the query a
-quota or billing check runs against the raw rows: one actor, one period,
-counted while a caller waits. All four columns are in the index, so that count
-never touches row data. The order matters — the actor pins the scan and
-`requested_at` bounds it, while `status_code` is in there only to make the index
-covering, since a billable-status rule is a negation and cannot narrow a range.
+There are no `created_at`/`updated_at` columns: rows are written once, and
+`requested_at` is the moment that matters.
+
+The table takes an insert per API request, so it is indexed sparingly: on
+`requested_at` (consolidation and pruning) and on
+`(actor_type, actor_id, requested_at)` for "what did this actor do during this
+period". Everything else is unindexed on purpose. If you query the raw rows by
+`request_id`, `endpoint_key` or similar, add that index in a migration of your
+own.
 
 ### `api_usage_summaries`
 
@@ -565,7 +573,9 @@ aggregation identity, and the unique index consolidation upserts on.
 nullable column in a unique index would defeat the upsert, because SQL treats
 every `NULL` as distinct and traffic without a credential would accumulate
 duplicate rows on every rerun. `actor_type`, `actor_id` and `credential_id` are
-still separate indexed columns, so you filter on those, never by parsing a key.
+still separate columns, so you filter on those, never by parsing a key. The
+unique index is the only one on this table; its leading `(period_type,
+period_start)` columns serve period scans and pruning.
 
 ## What This Package Deliberately Does Not Do
 

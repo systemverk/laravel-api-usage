@@ -46,6 +46,32 @@ class RecordApiUsageMiddlewareTest extends TestCase
         $this->assertSame(201, $entry['status_code']);
     }
 
+    public function test_the_first_request_of_a_minute_registers_the_buffer_as_pending(): void
+    {
+        $redis = $this->fakeRedis();
+
+        $this->runMiddleware(Request::create('/api/orders'), new Response('ok', 200));
+
+        $this->assertSame([BufferKeys::currentMinute()], $redis->smembers(BufferKeys::pendingRegistry()));
+    }
+
+    /**
+     * Steady state is one round trip: only the request that creates the list
+     * registers it and sets the TTL.
+     */
+    public function test_later_requests_in_the_same_minute_only_append(): void
+    {
+        $redis = $this->fakeRedis();
+
+        $this->runMiddleware(Request::create('/api/orders'), new Response('ok', 200));
+        $redis->calls = [];
+
+        $this->runMiddleware(Request::create('/api/orders'), new Response('ok', 200));
+
+        $this->assertSame(['rpush'], $redis->calls);
+        $this->assertCount(2, $redis->store[BufferKeys::currentMinute()]);
+    }
+
     public function test_terminate_buffers_the_resolved_credential(): void
     {
         $redis = $this->fakeRedis();
@@ -142,10 +168,8 @@ class RecordApiUsageMiddlewareTest extends TestCase
 
         $this->runMiddleware(Request::create('/api/orders'), new Response);
 
-        foreach ($redis->store as $entries) {
-            foreach ((array) $entries as $entry) {
-                $this->assertIsArray(json_decode((string) $entry, true), 'Buffered entries must be valid JSON.');
-            }
+        foreach ((array) ($redis->store[BufferKeys::currentMinute()] ?? []) as $entry) {
+            $this->assertIsArray(json_decode((string) $entry, true), 'Buffered entries must be valid JSON.');
         }
     }
 

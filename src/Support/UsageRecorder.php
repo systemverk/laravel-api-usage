@@ -130,7 +130,6 @@ class UsageRecorder
             }
         }
 
-        $now = Carbon::now('UTC');
         $actorKey = mb_substr((string) $entry['actor_key'], 0, UsageEvent::MAX_BUCKET_KEY_LENGTH);
         $credentialId = self::truncate(self::stringOrNull($entry['credential_id'] ?? null), UsageEvent::MAX_CREDENTIAL_ID_LENGTH);
 
@@ -151,8 +150,6 @@ class UsageRecorder
             'ip_hash' => self::truncate(self::stringOrNull($entry['ip_hash'] ?? null), UsageEvent::MAX_IP_HASH_LENGTH),
             'user_agent' => self::truncate(self::stringOrNull($entry['user_agent'] ?? null), UsageEvent::MAX_USER_AGENT_LENGTH),
             'request_id' => self::truncate(self::stringOrNull($entry['request_id'] ?? null), UsageEvent::MAX_REQUEST_ID_LENGTH),
-            'created_at' => $now,
-            'updated_at' => $now,
         ];
     }
 

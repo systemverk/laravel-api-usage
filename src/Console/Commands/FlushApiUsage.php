@@ -25,8 +25,7 @@ class FlushApiUsage extends Command
      *
      * @var string
      */
-    protected $signature = 'api-usage:flush
-        {--max-minutes=5 : Minutes to scan backwards from now}';
+    protected $signature = 'api-usage:flush';
 
     /**
      * The console command description.
@@ -46,12 +45,10 @@ class FlushApiUsage extends Command
             return self::SUCCESS;
         }
 
-        $maxMinutes = max(1, (int) $this->option('max-minutes'));
-
         $recovered = $this->recoverAbandonedBuffers();
         $flushed = 0;
 
-        foreach ($this->keysToProcess($maxMinutes) as $key) {
+        foreach ($this->pendingKeys() as $key) {
             $flushed += $this->claimAndDrain($key);
         }
 
@@ -65,16 +62,29 @@ class FlushApiUsage extends Command
     }
 
     /**
+     * Every minute buffer the middleware has registered, oldest first.
+     *
+     * Reading the registry rather than scanning a window of minutes means an
+     * outage of any length cannot strand a buffer: it stays registered until it
+     * is claimed or its TTL removes it.
+     *
      * @return array<int, string>
      */
-    private function keysToProcess(int $maxMinutes): array
+    private function pendingKeys(): array
     {
-        $keys = [];
-        $now = now()->utc();
+        try {
+            $members = $this->connection()->smembers(BufferKeys::pendingRegistry());
+        } catch (\Throwable $exception) {
+            $this->reportFailure('Failed to read the pending API usage buffers.', null, $exception);
 
-        for ($i = 0; $i < $maxMinutes; $i++) {
-            $keys[] = BufferKeys::forMinute($now->copy()->subMinutes($i));
+            return [];
         }
+
+        $keys = is_array($members) ? array_values(array_filter($members, is_string(...))) : [];
+
+        // Minute keys share a prefix and a fixed-width timestamp, so a plain
+        // sort is chronological.
+        sort($keys);
 
         return $keys;
     }
@@ -88,13 +98,28 @@ class FlushApiUsage extends Command
     private function claimAndDrain(string $key): int
     {
         $processingKey = $key.':processing:'.Str::uuid();
+        $redis = null;
+        $unregistered = false;
 
         try {
             $redis = $this->connection();
 
             if ((int) $redis->llen($key) === 0) {
+                // Expired, or registered by a request that lost a race with an
+                // earlier claim: nothing to flush, so drop the registration.
+                $redis->srem(BufferKeys::pendingRegistry(), $key);
+
                 return 0;
             }
+
+            /**
+             * Unregistered before the rename, never after. A request that
+             * lands once the buffer has been renamed creates a fresh list and
+             * registers it; unregistering afterwards could remove that new
+             * registration and strand the list.
+             */
+            $redis->srem(BufferKeys::pendingRegistry(), $key);
+            $unregistered = true;
 
             /**
              * Registered before the rename so that a crash between the two
@@ -111,11 +136,16 @@ class FlushApiUsage extends Command
 
             if (! $redis->renamenx($key, $processingKey)) {
                 $redis->srem(BufferKeys::processingRegistry(), $processingKey);
+                $redis->sadd(BufferKeys::pendingRegistry(), $key);
 
                 return 0;
             }
         } catch (\Throwable $exception) {
             $this->reportFailure('Failed to claim buffered API usage events.', $key, $exception);
+
+            if ($unregistered) {
+                $this->registerAgain($redis, $key);
+            }
 
             return 0;
         }
@@ -177,21 +207,16 @@ class FlushApiUsage extends Command
                 return 0;
             }
 
-            $rows = $this->rowsFrom($redis->lrange($processingKey, 0, -1));
-
-            if ($rows === []) {
-                $this->discard($redis, $processingKey);
-
-                return 0;
-            }
-
-            foreach (array_chunk($rows, UsageConfig::flushBatchSize()) as $chunk) {
-                ApiUsageRequest::query()->insert($chunk);
-            }
+            // One transaction for the whole buffer: a failure part-way rolls
+            // everything back, so the retry cannot insert the earlier chunks a
+            // second time.
+            $written = (new ApiUsageRequest)->getConnection()->transaction(
+                fn (): int => $this->insertBuffered($redis, $processingKey)
+            );
 
             $this->discard($redis, $processingKey);
 
-            return count($rows);
+            return $written;
         } catch (\Throwable $exception) {
             $this->reportFailure('Failed to flush buffered API usage events.', $processingKey, $exception);
 
@@ -200,6 +225,47 @@ class FlushApiUsage extends Command
             $this->keepForRetry($redis, $processingKey);
 
             return 0;
+        }
+    }
+
+    /**
+     * Read a claimed buffer one batch at a time and insert each batch, so a
+     * busy minute is never held in memory as a whole.
+     *
+     * @return int Rows written
+     */
+    private function insertBuffered(Connection $redis, string $processingKey): int
+    {
+        $size = UsageConfig::flushBatchSize();
+        $offset = 0;
+        $written = 0;
+
+        do {
+            $entries = $redis->lrange($processingKey, $offset, $offset + $size - 1);
+            $rows = $this->rowsFrom($entries);
+
+            if ($rows !== []) {
+                ApiUsageRequest::query()->insert($rows);
+                $written += count($rows);
+            }
+
+            $offset += $size;
+        } while (is_array($entries) && count($entries) === $size);
+
+        return $written;
+    }
+
+    /**
+     * Put a buffer back on the pending list after a claim that did not happen,
+     * so the next run sees it. Best effort: a Redis that is failing here is
+     * already being reported.
+     */
+    private function registerAgain(?Connection $redis, string $key): void
+    {
+        try {
+            $redis?->sadd(BufferKeys::pendingRegistry(), $key);
+        } catch (\Throwable) {
+            //
         }
     }
 

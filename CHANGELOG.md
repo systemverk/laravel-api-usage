@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/systemverk/laravel-api-usage/compare/v1.0.1...v1.1.0) (2026-09-22)
+
+### ✨ Features
+
+* add actor-period index migration and corresponding tests ([c073f45](https://github.com/systemverk/laravel-api-usage/commit/c073f45ea26b5ca7476020b87c095af072342bdb))
+
 ## [1.0.1](https://github.com/systemverk/laravel-api-usage/compare/v1.0.0...v1.0.1) (2026-09-06)
 
 ### 🐛 Bug Fixes

@@ -16,6 +16,11 @@ class RecordApiUsage
      */
     public const STARTED_AT = 'api_usage.started_at';
 
+    /**
+     * A request time older than this is treated as stale rather than real.
+     */
+    private const MAX_PLAUSIBLE_DURATION_SECONDS = 300;
+
     public function __construct(
         private readonly UsageRecorder $recorder,
         private readonly StoresUsageEvents $store,
@@ -51,10 +56,7 @@ class RecordApiUsage
                 return;
             }
 
-            $startedAt = $request->attributes->get(self::STARTED_AT);
-            $startedAt = is_float($startedAt) ? $startedAt : microtime(true);
-
-            $event = $this->recorder->capture($request, $response, $startedAt);
+            $event = $this->recorder->capture($request, $response, self::startedAt($request));
 
             // A null actor means the application asked us not to record this
             // request — unauthenticated traffic with guest tracking disabled,
@@ -67,6 +69,30 @@ class RecordApiUsage
         } catch (\Throwable $exception) {
             $this->reportSilently($exception);
         }
+    }
+
+    /**
+     * When the request started, as early as it can be known.
+     *
+     * The web server's request time covers bootstrap and every middleware that
+     * ran before this one, and it is still there when an earlier middleware (a
+     * throttle, say) answered without handle() ever running. A value from the
+     * future or from long ago is not a request time at all — Octane workers
+     * keep process-level timestamps for their whole life — so it is ignored in
+     * favour of the timestamp taken in handle().
+     */
+    public static function startedAt(Request $request): float
+    {
+        $now = microtime(true);
+        $server = $request->server->get('REQUEST_TIME_FLOAT');
+
+        if (is_float($server) && $server <= $now && $now - $server <= self::MAX_PLAUSIBLE_DURATION_SECONDS) {
+            return $server;
+        }
+
+        $handled = $request->attributes->get(self::STARTED_AT);
+
+        return is_float($handled) ? $handled : $now;
     }
 
     private function reportSilently(\Throwable $exception): void

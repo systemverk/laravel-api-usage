@@ -43,11 +43,23 @@ class EndpointResolutionTest extends TestCase
         );
     }
 
-    public function test_a_request_outside_routing_falls_back_to_its_path(): void
+    public function test_unmatched_requests_share_one_endpoint_but_keep_their_path(): void
     {
+        $first = (new RouteEndpointResolver)->resolve(Request::create('/wp-login.php'));
+        $second = (new RouteEndpointResolver)->resolve(Request::create('/.env', 'GET'));
+
+        $this->assertNull($first->routeName);
+        $this->assertSame('GET:/{unmatched}', $first->key());
+        $this->assertSame($first->key(), $second->key());
+        $this->assertSame('/wp-login.php', $first->path);
+    }
+
+    public function test_unmatched_requests_can_be_keyed_by_path(): void
+    {
+        config()->set('api_usage.endpoint.unmatched', 'path');
+
         $endpoint = (new RouteEndpointResolver)->resolve(Request::create('/api/never-routed'));
 
-        $this->assertNull($endpoint->routeName);
         $this->assertNull($endpoint->routeUri);
         $this->assertSame('GET:/api/never-routed', $endpoint->key());
     }

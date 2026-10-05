@@ -90,6 +90,15 @@ class UsageConfig
             : RouteEndpointResolver::class;
     }
 
+    /**
+     * Whether requests that matched no route share one endpoint. Anything but
+     * "path" collapses them, so a typo fails towards bounded summaries.
+     */
+    public static function collapseUnmatchedEndpoints(): bool
+    {
+        return config('api_usage.endpoint.unmatched', 'collapse') !== 'path';
+    }
+
     // -----------------------------------------------------------------
     // Buffer
     // -----------------------------------------------------------------

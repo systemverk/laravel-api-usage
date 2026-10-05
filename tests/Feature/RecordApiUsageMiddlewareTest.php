@@ -27,6 +27,34 @@ class RecordApiUsageMiddlewareTest extends TestCase
         $this->assertIsFloat($request->attributes->get(RecordApiUsage::STARTED_AT));
     }
 
+    public function test_the_duration_starts_at_the_server_request_time(): void
+    {
+        $request = Request::create('/api/orders');
+        $request->server->set('REQUEST_TIME_FLOAT', microtime(true) - 2);
+
+        $this->assertEqualsWithDelta(2.0, microtime(true) - RecordApiUsage::startedAt($request), 0.2);
+    }
+
+    public function test_a_request_answered_before_handle_still_has_a_start(): void
+    {
+        $request = Request::create('/api/orders');
+        $request->server->remove('REQUEST_TIME_FLOAT');
+
+        $this->assertEqualsWithDelta(microtime(true), RecordApiUsage::startedAt($request), 0.2);
+
+        $request->server->set('REQUEST_TIME_FLOAT', microtime(true) - 2);
+        $this->assertEqualsWithDelta(2.0, microtime(true) - RecordApiUsage::startedAt($request), 0.2);
+    }
+
+    public function test_a_stale_server_request_time_falls_back_to_handle(): void
+    {
+        $request = Request::create('/api/orders');
+        $request->server->set('REQUEST_TIME_FLOAT', microtime(true) - 86400);
+        $request->attributes->set(RecordApiUsage::STARTED_AT, microtime(true) - 1);
+
+        $this->assertEqualsWithDelta(1.0, microtime(true) - RecordApiUsage::startedAt($request), 0.2);
+    }
+
     public function test_terminate_buffers_the_event_and_sets_a_ttl(): void
     {
         $redis = $this->fakeRedis();
@@ -41,7 +69,7 @@ class RecordApiUsageMiddlewareTest extends TestCase
         $entry = json_decode($redis->store[$key][0], true);
 
         $this->assertSame('/api/orders', $entry['path']);
-        $this->assertSame('GET:/api/orders', $entry['endpoint_key']);
+        $this->assertSame('GET:/{unmatched}', $entry['endpoint_key']);
         $this->assertSame('guest', $entry['actor_type']);
         $this->assertSame('guest', $entry['actor_id']);
         $this->assertArrayNotHasKey('actor_key', $entry);
@@ -70,7 +98,7 @@ class RecordApiUsageMiddlewareTest extends TestCase
 
         $this->runMiddleware(Request::create('/api/orders'), new Response('ok', 200));
 
-        $this->assertSame(['rpush'], $redis->calls);
+        $this->assertSame(['eval'], $redis->calls);
         $this->assertCount(2, $redis->store[BufferKeys::currentMinute()]);
     }
 
@@ -131,18 +159,6 @@ class RecordApiUsageMiddlewareTest extends TestCase
         $this->assertSame([], $redis->store);
     }
 
-    public function test_a_cluster_connection_is_recognised(): void
-    {
-        config()->set('api_usage.buffer.connection', 'usage');
-        config()->set('database.redis.clusters.usage', [['host' => '127.0.0.1', 'port' => 6379]]);
-
-        $redis = $this->fakeRedis();
-
-        $this->runMiddleware(Request::create('/api/orders'), new Response);
-
-        $this->assertNotSame([], $redis->store);
-    }
-
     public function test_a_redis_failure_is_logged_and_swallowed(): void
     {
         Log::shouldReceive('warning')
@@ -151,7 +167,7 @@ class RecordApiUsageMiddlewareTest extends TestCase
                 && $context['error'] === 'connection refused');
 
         $redis = new FakeRedisConnection;
-        $redis->failOn('rpush', new \RuntimeException('connection refused'));
+        $redis->failOn('eval', new \RuntimeException('connection refused'));
         Redis::shouldReceive('connection')->andReturn($redis);
 
         $this->runMiddleware(Request::create('/api/orders'), new Response);

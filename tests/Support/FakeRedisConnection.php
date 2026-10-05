@@ -74,6 +74,30 @@ class FakeRedisConnection extends Connection
         return count($list);
     }
 
+    /**
+     * Only the buffer's push script is understood: append, and on the first
+     * element register the list (ARGV[2] in KEYS[2]) and give it a TTL.
+     */
+    public function eval(string $script, int $numberOfKeys, string ...$arguments): int
+    {
+        $this->guard('eval');
+
+        [$list, $registry, $event, $member, $ttl] = $arguments;
+
+        $items = $this->list($list);
+        $items[] = $event;
+        $this->store[$list] = $items;
+
+        if (count($items) === 1) {
+            $set = $this->set_($registry);
+            $set[] = $member;
+            $this->store[$registry] = array_values(array_unique($set));
+            $this->ttls[$list] = (int) $ttl;
+        }
+
+        return 1;
+    }
+
     public function llen(string $key): int
     {
         $this->guard('llen');

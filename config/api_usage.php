@@ -83,13 +83,23 @@ return [
     |
     | Requests are grouped by a canonical endpoint identity rather than by their
     | concrete path, so /orders/1 and /orders/2 aggregate together. The key is
-    | "METHOD:route_name", falling back to "METHOD:route_uri" and finally
-    | "METHOD:/path" for requests that never matched a route.
+    | "METHOD:route_name", falling back to "METHOD:route_uri".
+    |
+    | "unmatched" decides what happens to requests that matched no route, which
+    | only reach the middleware when it is registered globally:
+    |
+    | "collapse" Every such request shares the endpoint "METHOD:/{unmatched}",
+    |            so scanners and typos cannot add a summary row per path. The
+    |            raw rows keep the real path.
+    | "path"     Each path is its own endpoint, "METHOD:/path". Summaries grow
+    |            with the number of distinct paths requested.
     |
     */
 
     'endpoint' => [
         'resolver' => RouteEndpointResolver::class,
+
+        'unmatched' => env('API_USAGE_UNMATCHED_ENDPOINTS', 'collapse'),
     ],
 
     /*

@@ -182,7 +182,10 @@ class ApiUsageServiceProvider extends ServiceProvider
                     ->withoutOverlapping(self::HOURLY_MUTEX_MINUTES);
             }
 
-            $schedule->command(ConsolidateDailyApiUsage::class)
+            // Yesterday and the day before: events flushed after a backlog or a
+            // recovery land in an earlier day, and the nightly run is the one
+            // that picks them up.
+            $schedule->command(ConsolidateDailyApiUsage::class, ['--days=2'])
                 ->dailyAt((string) config('api_usage.schedule.daily_at', '02:00'))
                 ->withoutOverlapping(self::LONG_MUTEX_MINUTES);
 

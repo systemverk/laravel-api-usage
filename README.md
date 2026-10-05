@@ -98,7 +98,9 @@ then no longer scheduled.
 
 #### Redis driver
 
-- A connection must exist under `database.redis` (or `database.redis.clusters`)
+- A connection must exist under `database.redis`. Redis Cluster is not
+  supported: the flush command renames a buffer to a key in another hash slot,
+  which a cluster refuses
 - The package uses the `default` connection unless told otherwise
 - Override with `API_USAGE_REDIS_CONNECTION`
 
@@ -254,7 +256,17 @@ ApiUsage::usage()->thisMonth()->forCredential($token->id)->summary();
 `RouteEndpointResolver` is the default and needs no configuration. For unusual
 routing setups, implement `ResolvesUsageEndpoint` and point
 `endpoint.resolver` at it. Unlike actor resolution it never returns null: a
-request that matched no route is still recorded, keyed by its path.
+request that matched no route is still recorded.
+
+Such requests only reach the middleware when it is registered globally. By
+default they all share the endpoint `METHOD:/{unmatched}`, so scanners probing
+random paths cannot add a summary row per path; the raw rows keep the real
+path. Set `endpoint.unmatched` (`API_USAGE_UNMATCHED_ENDPOINTS`) to `path` to key
+them by path instead.
+
+Durations are measured from the web server's request start, so they include
+bootstrap and all middleware, and a request rejected early (a 429 from a
+throttle, say) still carries a real duration.
 
 ## Querying
 
@@ -374,7 +386,7 @@ schema may change in a future major version.
 |---|---|---|
 | `api-usage:flush` | every minute | Redis buffer → `api_usage_requests` |
 | `api-usage:consolidate-daily --today` | hourly | Keeps today's summaries fresh |
-| `api-usage:consolidate-daily` | daily at 02:00 | Yesterday's raw rows → daily summaries |
+| `api-usage:consolidate-daily --days=2` | daily at 02:00 | Yesterday's and the day before's raw rows → daily summaries; the earlier day catches events flushed late |
 | `api-usage:consolidate-monthly` | monthly on day 1 at 03:00 | Daily → monthly summaries |
 | `api-usage:prune` | daily at 03:10 | Applies the retention windows |
 
@@ -556,7 +568,7 @@ Schedule::command('api-usage:flush')->everyMinute();
 // Give every overlap guard an expiry shorter than the gap between runs: the
 // default of 24 hours lets a stale lock from a killed run skip the next daily run.
 Schedule::command('api-usage:consolidate-daily --today')->hourly()->withoutOverlapping(50);
-Schedule::command('api-usage:consolidate-daily')->dailyAt('02:00')->withoutOverlapping(720);
+Schedule::command('api-usage:consolidate-daily --days=2')->dailyAt('02:00')->withoutOverlapping(720);
 Schedule::command('api-usage:consolidate-monthly')->monthlyOn(1, '03:00')->withoutOverlapping(720);
 Schedule::command('api-usage:prune')->dailyAt('03:10')->withoutOverlapping(720);
 ```
@@ -574,7 +586,7 @@ All timestamps are stored in **UTC**, independent of `app.timezone`.
 | `credential_id` | Nullable; whatever the credential resolver returned |
 |cred:{id}` when a credential is known |
 | `method`, `route_name`, `route_uri`, `path` | `path` truncated to 1024 chars |
-| `endpoint_key` | `METHOD:route_name`, `METHOD:route_uri` or `METHOD:/path` |
+| `endpoint_key` | `METHOD:route_name`, `METHOD:route_uri` or `METHOD:/{unmatched}` (`METHOD:/path` with `endpoint.unmatched` = `path`) |
 | `status_code`, `duration_ms` | |
 | `ip_hash` | Salted SHA-256, or null |
 | `user_agent` | Truncated to 512 chars, or null |

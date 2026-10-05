@@ -224,6 +224,42 @@ class ConsolidateDailyApiUsageTest extends TestCase
         $this->assertSame('2026-06-18', ApiUsageSummary::query()->firstOrFail()->period_start->toDateString());
     }
 
+    public function test_days_also_consolidates_the_days_before(): void
+    {
+        $this->request(['requested_at' => '2026-06-17 10:00:00']);
+        $this->request(['requested_at' => '2026-06-16 10:00:00']);
+        $this->request(['requested_at' => '2026-06-15 10:00:00']);
+
+        $this->artisan('api-usage:consolidate-daily', ['--days' => 2])->assertExitCode(0);
+
+        $this->assertSame(
+            ['2026-06-16', '2026-06-17'],
+            ApiUsageSummary::query()->orderBy('period_start')->get()
+                ->map(fn ($row) => $row->period_start->toDateString())->all()
+        );
+    }
+
+    public function test_an_earlier_day_is_skipped_when_its_raw_rows_may_be_pruned(): void
+    {
+        config()->set('api_usage.retention.raw_days', 1);
+
+        $this->request(['requested_at' => '2026-06-17 10:00:00']);
+        $this->request(['requested_at' => '2026-06-16 10:00:00']);
+
+        $this->artisan('api-usage:consolidate-daily', ['--days' => 2])
+            ->expectsOutputToContain('Skipped 2026-06-16')
+            ->assertExitCode(0);
+
+        $this->assertSame(1, ApiUsageSummary::query()->count());
+    }
+
+    public function test_days_must_be_a_positive_whole_number(): void
+    {
+        $this->artisan('api-usage:consolidate-daily', ['--days' => '0'])
+            ->expectsOutputToContain('Invalid --days')
+            ->assertExitCode(1);
+    }
+
     public function test_today_and_date_cannot_be_combined(): void
     {
         $this->artisan('api-usage:consolidate-daily', ['--today' => true, '--date' => '2026-06-17'])

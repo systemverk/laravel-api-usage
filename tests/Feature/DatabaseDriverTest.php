@@ -54,7 +54,7 @@ class DatabaseDriverTest extends TestCase
         $this->assertSame('guest', $row->actor_id);
         $this->assertSame('GET', $row->method);
         $this->assertSame('/api/orders/7', $row->path, 'The query string is never stored.');
-        $this->assertSame('GET:/api/orders/7', $row->endpoint_key);
+        $this->assertSame('GET:/{unmatched}', $row->endpoint_key);
         $this->assertSame(201, $row->status_code);
         $this->assertSame('curl/8.0', $row->user_agent);
         $this->assertNotNull($row->ip_hash);

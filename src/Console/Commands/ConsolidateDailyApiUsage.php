@@ -20,7 +20,8 @@ class ConsolidateDailyApiUsage extends Command
      */
     protected $signature = 'api-usage:consolidate-daily
         {--date= : UTC date (Y-m-d), defaults to yesterday}
-        {--today : Consolidate the current UTC day instead of yesterday}';
+        {--today : Consolidate the current UTC day instead of yesterday}
+        {--days=1 : Consolidate this many days, ending at the chosen day}';
 
     /**
      * The console command description.
@@ -46,6 +47,36 @@ class ConsolidateDailyApiUsage extends Command
             return self::FAILURE;
         }
 
+        try {
+            $days = $this->resolveDays();
+        } catch (InvalidArgumentException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        // The chosen day always runs. Earlier ones pick up events flushed late
+        // — after a backlog or a recovery — but only while their raw rows are
+        // all still there: recomputing a half-pruned day would understate it.
+        $oldestIntact = CarbonImmutable::now('UTC')->subDays(UsageConfig::rawRetentionDays());
+
+        for ($offset = 0; $offset < $days; $offset++) {
+            $day = $date->subDays($offset);
+
+            if ($offset > 0 && $day->startOfDay()->lessThan($oldestIntact)) {
+                $this->info("Skipped {$day->toDateString()}: its raw rows may already be pruned.");
+
+                continue;
+            }
+
+            $this->consolidate($day);
+        }
+
+        return self::SUCCESS;
+    }
+
+    private function consolidate(CarbonImmutable $date): void
+    {
         $periodStart = $date->toDateString();
         $now = Carbon::now('UTC');
 
@@ -74,9 +105,9 @@ class ConsolidateDailyApiUsage extends Command
             ->get();
 
         if ($rows->isEmpty()) {
-            $this->info('No API usage found for the consolidation window.');
+            $this->info('No API usage found for '.$periodStart.'.');
 
-            return self::SUCCESS;
+            return;
         }
 
         $buckets = $rows
@@ -99,8 +130,17 @@ class ConsolidateDailyApiUsage extends Command
         }
 
         $this->info('Consolidated '.count($buckets).' daily API usage rows for '.$periodStart.'.');
+    }
 
-        return self::SUCCESS;
+    private function resolveDays(): int
+    {
+        $days = (string) $this->option('days');
+
+        if (! ctype_digit($days) || (int) $days < 1) {
+            throw new InvalidArgumentException('Invalid --days value. Expected a whole number of at least 1.');
+        }
+
+        return (int) $days;
     }
 
     private function resolveDate(): CarbonImmutable

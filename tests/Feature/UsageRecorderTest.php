@@ -308,7 +308,7 @@ class UsageRecorderTest extends TestCase
         $this->assertSame('organization', $row['actor_type']);
         $this->assertSame('42', $row['actor_id']);
         $this->assertSame('7', $row['credential_id']);
-        $this->assertSame('GET:/api/orders/9', $row['endpoint_key']);
+        $this->assertSame('GET:/{unmatched}', $row['endpoint_key']);
         $this->assertSame(204, $row['status_code']);
     }
 

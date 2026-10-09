@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/systemverk/laravel-api-usage/compare/v1.4.0...v1.4.1) (2026-10-09)
+
+### 🐛 Bug Fixes
+
+* standardize usage of UTC across API usage commands and documentation ([6a85cbb](https://github.com/systemverk/laravel-api-usage/commit/6a85cbb10cdc57d5b452adaf66fd2d5e081a15a7))
+
 ## [1.4.0](https://github.com/systemverk/laravel-api-usage/compare/v1.3.0...v1.4.0) (2026-10-09)
 
 ### ✨ Features

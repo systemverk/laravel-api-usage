@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/systemverk/laravel-api-usage/compare/v1.3.0...v1.4.0) (2026-10-09)
+
+### ✨ Features
+
+* Update API usage summary to include responses_429 and adjust timezone handling for daily and monthly consolidations ([989bbf1](https://github.com/systemverk/laravel-api-usage/commit/989bbf1d8e91eb60ac013875bbec97c308454c3a))
+
 ## [1.3.0](https://github.com/systemverk/laravel-api-usage/compare/v1.2.0...v1.3.0) (2026-10-05)
 
 ### ✨ Features

@@ -160,20 +160,6 @@ class ConsolidateMonthlyApiUsageTest extends TestCase
         $this->assertSame(3, $summary->responses_429);
     }
 
-    public function test_the_previous_month_is_the_one_in_the_application_timezone(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 22:30 UTC on 30 June is 00:30 on 1 July in Oslo, so June is the month just ended.
-        Carbon::setTestNow(Carbon::parse('2026-06-30 22:30:00', 'UTC'));
-
-        $this->daily('2026-06-10', ['total_requests' => 2]);
-
-        $this->artisan('api-usage:consolidate-monthly')->assertExitCode(0);
-
-        $this->assertSame('2026-06-01', ApiUsageSummary::query()->monthly()->firstOrFail()->period_start->toDateString());
-    }
-
     public function test_it_reports_when_there_is_nothing_to_consolidate(): void
     {
         $this->artisan('api-usage:consolidate-monthly', ['--month' => '2026-06'])

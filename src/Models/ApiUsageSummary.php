@@ -10,8 +10,6 @@ use Systemverk\LaravelApiUsage\Support\UsageConfig;
 
 /**
  * Aggregated usage for one actor, credential and endpoint within one period.
- * A period is a day or month in the application's timezone, so `period_start`
- * is a local date even though the raw rows it was built from are stored in UTC.
  *
  * This is the advanced API: prefer the query services behind the ApiUsage
  * facade for ordinary analytics.

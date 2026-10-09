@@ -46,7 +46,6 @@ class ApiUsageStatus extends Command
             ['Enabled', UsageConfig::enabled() ? 'yes' : 'no'],
             ['Driver', UsageConfig::driver()],
             ['Sampling rate', (string) UsageConfig::samplingRate()],
-            ['Usage day timezone', UsageConfig::timezone()],
             ['Track guests', UsageConfig::trackGuests() ? 'yes' : 'no'],
             ['Actor resolver', UsageConfig::actorResolver()],
             ['Endpoint resolver', UsageConfig::endpointResolver()],

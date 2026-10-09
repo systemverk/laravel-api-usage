@@ -277,8 +277,7 @@ Three entry points, all sharing the same period selection and filters.
 `today()` · `yesterday()` · `thisWeek()` · `lastDays(int $days)` ·
 `thisMonth()` · `lastMonth()` · `between(DateTimeInterface $from, DateTimeInterface $to)`
 
-Dates are dates in the application timezone (`app.timezone`) and both ends of a
-range are inclusive; see [Time zone](#time-zone). Without a period, a
+All dates are UTC and both ends of a range are inclusive. Without a period, a
 query covers the current month.
 
 ### Filters
@@ -579,22 +578,6 @@ Schedule::command('api-usage:prune')->dailyAt('03:10')->withoutOverlapping(720);
 
 All timestamps are stored in **UTC**, independent of `app.timezone`.
 
-### Time zone
-
-Raw rows keep UTC, but a *day* and a *month* are counted in the application's
-timezone (`app.timezone`). There is no separate setting. A request made at 00:30
-Oslo time on the 18th is summarised under the 18th, and `period_start` holds the
-local date. The window of a day is converted to the UTC instants it spans, so the
-days daylight saving time starts and ends are 23 and 25 hours long.
-
-This applies everywhere a date is named: the `--date`, `--today` and `--month`
-options of the consolidation commands, the cut-offs of `api-usage:prune`, and the
-`today()`, `yesterday()`, `thisMonth()` and `between()` periods of the query API.
-
-Changing `app.timezone` on an installation with data moves the boundaries, so
-existing summaries stay under the dates they were written with. Rebuild them with
-`api-usage:consolidate-daily --date=…` while the raw rows still exist, then
-`api-usage:consolidate-monthly --month=…`.
 
 ### `api_usage_requests`
 

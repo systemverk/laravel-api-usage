@@ -77,71 +77,6 @@ class ConsolidateDailyApiUsageTest extends TestCase
         $this->assertSame(2, $summary->responses_429);
     }
 
-    public function test_a_day_is_a_day_in_the_application_timezone(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 2026-06-17 in Oslo (UTC+2) runs from 2026-06-16 22:00 to 2026-06-17 21:59 UTC.
-        $this->request(['requested_at' => '2026-06-16 21:59:59']);
-        $this->request(['requested_at' => '2026-06-16 22:00:00']);
-        $this->request(['requested_at' => '2026-06-17 21:59:59']);
-        $this->request(['requested_at' => '2026-06-17 22:00:00']);
-
-        $this->consolidate();
-
-        $this->assertSame(2, ApiUsageSummary::query()->value('total_requests'));
-        $this->assertSame('2026-06-17', ApiUsageSummary::query()->firstOrFail()->period_start->toDateString());
-    }
-
-    public function test_the_day_daylight_saving_time_starts_lasts_23_hours(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 2026-03-29 in Oslo runs from 2026-03-28 23:00 to 2026-03-29 21:59 UTC.
-        $this->request(['requested_at' => '2026-03-28 22:59:59']);
-        $this->request(['requested_at' => '2026-03-28 23:00:00']);
-        $this->request(['requested_at' => '2026-03-29 21:59:59']);
-        $this->request(['requested_at' => '2026-03-29 22:00:00']);
-
-        $this->consolidate('2026-03-29');
-
-        $this->assertSame(2, ApiUsageSummary::query()->value('total_requests'));
-    }
-
-    public function test_the_day_daylight_saving_time_ends_lasts_25_hours(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 2026-10-25 in Oslo runs from 2026-10-24 22:00 to 2026-10-25 22:59 UTC.
-        $this->request(['requested_at' => '2026-10-24 21:59:59']);
-        $this->request(['requested_at' => '2026-10-24 22:00:00']);
-        $this->request(['requested_at' => '2026-10-25 22:59:59']);
-        $this->request(['requested_at' => '2026-10-25 23:00:00']);
-
-        $this->consolidate('2026-10-25');
-
-        $this->assertSame(2, ApiUsageSummary::query()->value('total_requests'));
-    }
-
-    public function test_yesterday_and_today_follow_the_application_timezone(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 22:30 UTC on the 17th is already 00:30 on the 18th in Oslo.
-        Carbon::setTestNow(Carbon::parse('2026-06-17 22:30:00', 'UTC'));
-
-        $this->request(['requested_at' => '2026-06-17 10:00:00']);
-        $this->request(['requested_at' => '2026-06-17 22:10:00']);
-
-        $this->artisan('api-usage:consolidate-daily')->assertExitCode(0);
-
-        $this->assertSame(['2026-06-17'], $this->summarisedDates());
-
-        $this->artisan('api-usage:consolidate-daily', ['--today' => true])->assertExitCode(0);
-
-        $this->assertSame(['2026-06-17', '2026-06-18'], $this->summarisedDates());
-    }
-
     public function test_it_records_duration_totals_and_extremes(): void
     {
         foreach ([40, 10, 90] as $duration) {
@@ -395,16 +330,6 @@ class ConsolidateDailyApiUsageTest extends TestCase
     private function consolidate(string $date = '2026-06-17'): void
     {
         $this->artisan('api-usage:consolidate-daily', ['--date' => $date])->assertExitCode(0);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function summarisedDates(): array
-    {
-        return ApiUsageSummary::query()->orderBy('period_start')->get()
-            ->map(fn (ApiUsageSummary $row): string => $row->period_start->toDateString())
-            ->unique()->values()->all();
     }
 
     /**

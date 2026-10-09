@@ -19,8 +19,8 @@ class ConsolidateDailyApiUsage extends Command
      * @var string
      */
     protected $signature = 'api-usage:consolidate-daily
-        {--date= : Date (Y-m-d) in the application timezone, defaults to yesterday}
-        {--today : Consolidate the current day instead of yesterday}
+        {--date= : UTC date (Y-m-d), defaults to yesterday}
+        {--today : Consolidate the current UTC day instead of yesterday}
         {--days=1 : Consolidate this many days, ending at the chosen day}';
 
     /**
@@ -80,12 +80,6 @@ class ConsolidateDailyApiUsage extends Command
         $periodStart = $date->toDateString();
         $now = Carbon::now('UTC');
 
-        // A day is a day in the application's timezone, but raw rows are stored
-        // in UTC, so the window is converted to the instants it spans. It is 23
-        // or 25 hours long on the days daylight saving time changes.
-        $from = $date->startOfDay()->utc();
-        $to = $date->endOfDay()->utc();
-
         // The database does the counting: one pass over the day's rows, and
         // only one result row per actor/credential/endpoint combination comes
         // back. The method and route columns follow from the endpoint key, so
@@ -107,7 +101,7 @@ class ConsolidateDailyApiUsage extends Command
                 MIN(duration_ms) as min_duration_ms,
                 MAX(duration_ms) as max_duration_ms'
             )
-            ->whereBetween('requested_at', [$from, $to])
+            ->whereBetween('requested_at', [$date->startOfDay(), $date->endOfDay()])
             ->groupBy('actor_type', 'actor_id', 'credential_id', 'endpoint_key')
             ->get();
 
@@ -160,11 +154,11 @@ class ConsolidateDailyApiUsage extends Command
                 throw new InvalidArgumentException('Use either --today or --date, not both.');
             }
 
-            return CarbonImmutable::now(UsageConfig::timezone());
+            return CarbonImmutable::now('UTC');
         }
 
         if (! $hasDate) {
-            return CarbonImmutable::now(UsageConfig::timezone())->subDay();
+            return CarbonImmutable::now('UTC')->subDay();
         }
 
         $dateString = (string) $dateOption;
@@ -174,13 +168,13 @@ class ConsolidateDailyApiUsage extends Command
         }
 
         try {
-            $date = CarbonImmutable::createFromFormat('!Y-m-d', $dateString, UsageConfig::timezone());
+            $date = CarbonImmutable::createFromFormat('!Y-m-d', $dateString, 'UTC');
         } catch (\Throwable) {
-            throw new InvalidArgumentException('Invalid --date value. Expected a real date in Y-m-d format.');
+            throw new InvalidArgumentException('Invalid --date value. Expected a real UTC date in Y-m-d format.');
         }
 
         if ($date->format('Y-m-d') !== $dateString) {
-            throw new InvalidArgumentException('Invalid --date value. Expected a real date in Y-m-d format.');
+            throw new InvalidArgumentException('Invalid --date value. Expected a real UTC date in Y-m-d format.');
         }
 
         return $date;

@@ -104,37 +104,6 @@ class UsageQueryTest extends TestCase
         $this->assertSame(3, $summary->totalRequests);
     }
 
-    public function test_today_and_yesterday_are_dates_in_the_application_timezone(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        // 22:30 UTC on the 17th is 00:30 on the 18th in Oslo.
-        Carbon::setTestNow(Carbon::parse('2026-06-17 22:30:00', 'UTC'));
-
-        $this->summary('2026-06-18', ['total_requests' => 3]);
-        $this->summary('2026-06-17', ['total_requests' => 5]);
-
-        $this->assertSame(3, ApiUsage::usage()->today()->summary()->totalRequests);
-        $this->assertSame(5, ApiUsage::usage()->yesterday()->summary()->totalRequests);
-    }
-
-    public function test_between_reads_its_arguments_in_the_application_timezone(): void
-    {
-        config()->set('app.timezone', 'Europe/Oslo');
-
-        $this->summary('2026-06-09', ['total_requests' => 1]);
-        $this->summary('2026-06-10', ['total_requests' => 2]);
-        $this->summary('2026-06-12', ['total_requests' => 4]);
-        $this->summary('2026-06-13', ['total_requests' => 8]);
-
-        // 22:30 UTC on the 9th is the 10th in Oslo; 10:00 UTC on the 12th is still the 12th.
-        $summary = ApiUsage::usage()
-            ->between(Carbon::parse('2026-06-09 22:30', 'UTC'), Carbon::parse('2026-06-12 10:00', 'UTC'))
-            ->summary();
-
-        $this->assertSame(6, $summary->totalRequests);
-    }
-
     public function test_it_reports_throttled_requests_as_part_of_the_client_errors(): void
     {
         $this->summary('2026-06-17', ['total_requests' => 6, 'responses_4xx' => 3, 'responses_429' => 2]);

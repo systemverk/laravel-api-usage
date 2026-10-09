@@ -10,6 +10,8 @@ use Systemverk\LaravelApiUsage\Support\UsageConfig;
 
 /**
  * Aggregated usage for one actor, credential and endpoint within one period.
+ * A period is a day or month in the application's timezone, so `period_start`
+ * is a local date even though the raw rows it was built from are stored in UTC.
  *
  * This is the advanced API: prefer the query services behind the ApiUsage
  * facade for ordinary analytics.
@@ -30,6 +32,7 @@ use Systemverk\LaravelApiUsage\Support\UsageConfig;
  * @property int $responses_3xx
  * @property int $responses_4xx
  * @property int $responses_5xx
+ * @property int $responses_429 The part of responses_4xx that was status 429.
  * @property int $total_duration_ms
  * @property int $min_duration_ms
  * @property int $max_duration_ms
@@ -50,6 +53,7 @@ class ApiUsageSummary extends Model
         'responses_3xx' => 'integer',
         'responses_4xx' => 'integer',
         'responses_5xx' => 'integer',
+        'responses_429' => 'integer',
         'total_duration_ms' => 'integer',
         'min_duration_ms' => 'integer',
         'max_duration_ms' => 'integer',

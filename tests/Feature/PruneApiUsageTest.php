@@ -69,6 +69,25 @@ class PruneApiUsageTest extends TestCase
         $this->assertSame('2026-06-16', ApiUsageSummary::query()->daily()->firstOrFail()->period_start->toDateString());
     }
 
+    public function test_the_summary_cut_off_is_a_date_in_the_application_timezone(): void
+    {
+        config()->set('app.timezone', 'Europe/Oslo');
+        config()->set('api_usage.retention.daily_days', 30);
+
+        // 22:30 UTC on 30 June is 1 July in Oslo, so the cut-off is 1 June, not 31 May.
+        Carbon::setTestNow(Carbon::parse('2026-06-30 22:30:00', 'UTC'));
+
+        $this->summary('day', '2026-05-31');
+        $this->summary('day', '2026-06-01');
+
+        $this->artisan('api-usage:prune')->assertExitCode(0);
+
+        $this->assertSame(
+            ['2026-06-01'],
+            ApiUsageSummary::query()->daily()->get()->map(fn ($row) => $row->period_start->toDateString())->all()
+        );
+    }
+
     public function test_daily_summaries_are_kept_indefinitely_when_retention_is_zero(): void
     {
         config()->set('api_usage.retention.daily_days', 0);

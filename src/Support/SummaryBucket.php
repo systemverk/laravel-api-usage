@@ -15,6 +15,10 @@ final class SummaryBucket
 {
     /**
      * Counter columns that are simply summed when rolling a period up.
+     *
+     * `responses_429` is not a class of its own: it is the part of
+     * `responses_4xx` that was rate limited, kept apart because a rejected
+     * request is a different thing to count than a rejected input.
      */
     public const COUNTERS = [
         'total_requests',
@@ -23,6 +27,7 @@ final class SummaryBucket
         'responses_3xx',
         'responses_4xx',
         'responses_5xx',
+        'responses_429',
         'total_duration_ms',
     ];
 
@@ -52,6 +57,7 @@ final class SummaryBucket
         'responses_3xx',
         'responses_4xx',
         'responses_5xx',
+        'responses_429',
         'total_duration_ms',
         'min_duration_ms',
         'max_duration_ms',
@@ -83,6 +89,7 @@ final class SummaryBucket
             'responses_3xx' => 0,
             'responses_4xx' => 0,
             'responses_5xx' => 0,
+            'responses_429' => 0,
             'total_duration_ms' => 0,
             'min_duration_ms' => 0,
             'max_duration_ms' => 0,

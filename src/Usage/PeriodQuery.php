@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Systemverk\LaravelApiUsage\Actors\UsageActor;
 use Systemverk\LaravelApiUsage\Models\ApiUsageSummary;
+use Systemverk\LaravelApiUsage\Support\UsageConfig;
 
 /**
  * Period selection and filtering shared by the usage, endpoint and actor
@@ -16,6 +17,9 @@ use Systemverk\LaravelApiUsage\Models\ApiUsageSummary;
  * outlive raw retention by default, and already carry the duration totals the
  * result objects need. The trade-off is freshness — numbers are as current as
  * the last consolidation run. See the scheduling section of the README.
+ *
+ * A day is a day in the application's timezone, the one consolidation counted
+ * it in, so "today" is the local date and not the UTC one.
  *
  * Instances are immutable; every method returns a new query.
  */
@@ -37,7 +41,7 @@ abstract class PeriodQuery
     {
         // An unqualified query means "this month", the period people ask for
         // most often, rather than an unbounded table scan.
-        $now = Carbon::now('UTC');
+        $now = UsageConfig::now();
 
         $this->from = $now->copy()->startOfMonth()->toDateString();
         $this->to = $now->copy()->endOfMonth()->toDateString();
@@ -45,14 +49,14 @@ abstract class PeriodQuery
 
     public function today(): static
     {
-        $today = Carbon::now('UTC')->toDateString();
+        $today = UsageConfig::now()->toDateString();
 
         return $this->betweenDates($today, $today);
     }
 
     public function yesterday(): static
     {
-        $yesterday = Carbon::now('UTC')->subDay()->toDateString();
+        $yesterday = UsageConfig::now()->subDay()->toDateString();
 
         return $this->betweenDates($yesterday, $yesterday);
     }
@@ -62,7 +66,7 @@ abstract class PeriodQuery
      */
     public function thisWeek(): static
     {
-        $now = Carbon::now('UTC');
+        $now = UsageConfig::now();
 
         return $this->betweenDates(
             $now->copy()->startOfWeek()->toDateString(),
@@ -76,7 +80,7 @@ abstract class PeriodQuery
     public function lastDays(int $days): static
     {
         $days = max(1, $days);
-        $now = Carbon::now('UTC');
+        $now = UsageConfig::now();
 
         return $this->betweenDates(
             $now->copy()->subDays($days - 1)->toDateString(),
@@ -86,7 +90,7 @@ abstract class PeriodQuery
 
     public function thisMonth(): static
     {
-        $now = Carbon::now('UTC');
+        $now = UsageConfig::now();
 
         return $this->betweenDates(
             $now->copy()->startOfMonth()->toDateString(),
@@ -96,7 +100,7 @@ abstract class PeriodQuery
 
     public function lastMonth(): static
     {
-        $lastMonth = Carbon::now('UTC')->subMonthNoOverflow();
+        $lastMonth = UsageConfig::now()->subMonthNoOverflow();
 
         return $this->betweenDates(
             $lastMonth->copy()->startOfMonth()->toDateString(),
@@ -105,14 +109,15 @@ abstract class PeriodQuery
     }
 
     /**
-     * An arbitrary range. Both ends are inclusive and interpreted as UTC dates;
-     * reversed arguments are swapped rather than silently returning nothing.
+     * An arbitrary range. Both ends are inclusive and are read as dates in the
+     * application's timezone; reversed arguments are swapped rather than
+     * silently returning nothing.
      */
     public function between(DateTimeInterface $from, DateTimeInterface $to): static
     {
         return $this->betweenDates(
-            Carbon::instance($from)->utc()->toDateString(),
-            Carbon::instance($to)->utc()->toDateString()
+            Carbon::instance($from)->setTimezone(UsageConfig::timezone())->toDateString(),
+            Carbon::instance($to)->setTimezone(UsageConfig::timezone())->toDateString()
         );
     }
 
@@ -232,6 +237,7 @@ abstract class PeriodQuery
             'sum(responses_3xx) as responses_3xx',
             'sum(responses_4xx) as responses_4xx',
             'sum(responses_5xx) as responses_5xx',
+            'sum(responses_429) as responses_429',
             'sum(total_duration_ms) as total_duration_ms',
             'min(min_duration_ms) as min_duration_ms',
             'max(max_duration_ms) as max_duration_ms',

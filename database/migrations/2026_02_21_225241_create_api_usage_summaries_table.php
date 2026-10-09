@@ -48,6 +48,11 @@ return new class extends Migration
             $table->unsignedBigInteger('responses_4xx')->default(0);
             $table->unsignedBigInteger('responses_5xx')->default(0);
 
+            // Part of `responses_4xx`, not an addition to it. A 429 is a request
+            // that was turned away before it did any work, which an application
+            // metering usage must be able to tell apart from a 404 or a 422.
+            $table->unsignedBigInteger('responses_429')->default(0);
+
             $table->unsignedBigInteger('total_duration_ms')->default(0);
             $table->unsignedInteger('min_duration_ms')->default(0);
             $table->unsignedInteger('max_duration_ms')->default(0);

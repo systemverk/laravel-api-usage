@@ -39,6 +39,10 @@ class PruneApiUsage extends Command
         $chunk = max(1, (int) $this->option('chunk'));
         $now = CarbonImmutable::now('UTC');
 
+        // Summaries are keyed by dates in the application's timezone, so their
+        // cut-off is a local date; only the raw rows are compared as instants.
+        $localNow = CarbonImmutable::now(UsageConfig::timezone());
+
         $rawDaysOption = $this->option('raw-days');
         $rawDays = $rawDaysOption === null || (string) $rawDaysOption === ''
             ? UsageConfig::rawRetentionDays()
@@ -57,7 +61,7 @@ class PruneApiUsage extends Command
             $dailyDeleted = $this->deleteInChunks(
                 fn (): Builder => ApiUsageSummary::query()
                     ->daily()
-                    ->where('period_start', '<', $now->subDays($dailyDays)->toDateString()),
+                    ->where('period_start', '<', $localNow->subDays($dailyDays)->toDateString()),
                 $chunk
             );
 
@@ -72,7 +76,7 @@ class PruneApiUsage extends Command
             $monthlyDeleted = $this->deleteInChunks(
                 fn (): Builder => ApiUsageSummary::query()
                     ->monthly()
-                    ->where('period_start', '<', $now->subMonthsNoOverflow($monthlyMonths)->startOfMonth()->toDateString()),
+                    ->where('period_start', '<', $localNow->subMonthsNoOverflow($monthlyMonths)->startOfMonth()->toDateString()),
                 $chunk
             );
 

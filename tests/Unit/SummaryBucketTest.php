@@ -52,6 +52,18 @@ class SummaryBucketTest extends TestCase
         $this->assertSame(400, $bucket['max_duration_ms']);
     }
 
+    public function test_the_429_counter_is_carried_and_summed(): void
+    {
+        $bucket = SummaryBucket::fromAggregate('day', '2026-06-17', (object) ['responses_429' => '3'], Carbon::parse('2026-06-18 00:00:00', 'UTC'));
+
+        $this->assertSame(3, $bucket['responses_429']);
+
+        SummaryBucket::addSummary($bucket, (object) ['total_requests' => 2, 'responses_429' => 2]);
+
+        $this->assertSame(5, $bucket['responses_429']);
+        $this->assertContains('responses_429', SummaryBucket::UPDATE_COLUMNS);
+    }
+
     public function test_an_empty_row_does_not_drag_the_minimum_down_to_zero(): void
     {
         $bucket = $this->bucket();

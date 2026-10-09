@@ -2,6 +2,7 @@
 
 namespace Systemverk\LaravelApiUsage\Support;
 
+use Illuminate\Support\Carbon;
 use Systemverk\LaravelApiUsage\Actors\AuthenticatedUserActorResolver;
 use Systemverk\LaravelApiUsage\Endpoints\RouteEndpointResolver;
 
@@ -16,6 +17,39 @@ class UsageConfig
     public static function enabled(): bool
     {
         return (bool) config('api_usage.enabled', true);
+    }
+
+    /**
+     * The timezone a usage day and a usage month are counted in: the
+     * application's own. Raw rows are always stored in UTC; this only decides
+     * where one day ends and the next begins when they are summarised, so a
+     * request made at 00:30 Oslo time lands on the Oslo date it was made on.
+     *
+     * An unknown zone falls back to UTC rather than failing a consolidation.
+     */
+    public static function timezone(): string
+    {
+        $timezone = config('app.timezone');
+
+        if (! is_string($timezone) || $timezone === '') {
+            return 'UTC';
+        }
+
+        try {
+            new \DateTimeZone($timezone);
+        } catch (\Throwable) {
+            return 'UTC';
+        }
+
+        return $timezone;
+    }
+
+    /**
+     * The current moment, expressed in {@see self::timezone()}.
+     */
+    public static function now(): Carbon
+    {
+        return Carbon::now(self::timezone());
     }
 
     public const DRIVER_REDIS = 'redis';

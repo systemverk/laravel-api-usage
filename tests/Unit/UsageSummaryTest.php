@@ -53,6 +53,21 @@ class UsageSummaryTest extends TestCase
         $this->assertSame(210, $summary->maxDurationMs);
     }
 
+    public function test_throttled_requests_are_a_subset_of_the_client_errors(): void
+    {
+        $summary = UsageSummary::fromTotals([
+            'total_requests' => 8,
+            'responses_4xx' => 4,
+            'responses_429' => 3,
+            'total_duration_ms' => 80,
+        ]);
+
+        $this->assertSame(3, $summary->throttled);
+        $this->assertSame(4, $summary->clientErrors);
+        $this->assertSame(3, $summary->toArray()['throttled']);
+        $this->assertSame(0.5, $summary->errorRate());
+    }
+
     public function test_the_error_rate_counts_client_and_server_errors(): void
     {
         $summary = UsageSummary::fromTotals([

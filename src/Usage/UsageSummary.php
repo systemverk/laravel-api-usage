@@ -5,6 +5,8 @@ namespace Systemverk\LaravelApiUsage\Usage;
 /**
  * The answer to "how much was this used, and how did it perform?".
  *
+ * `throttled` is the part of `clientErrors` that was status 429.
+ *
  * Counts reflect what was recorded. With a sampling rate below 1.0 that is a
  * sample, not an estimate of the true total — the package never extrapolates.
  */
@@ -21,6 +23,7 @@ final readonly class UsageSummary
         public ?float $averageDurationMs = null,
         public ?int $minDurationMs = null,
         public ?int $maxDurationMs = null,
+        public int $throttled = 0,
     ) {}
 
     /**
@@ -49,6 +52,7 @@ final readonly class UsageSummary
             averageDurationMs: round($duration / $requests, 2),
             minDurationMs: isset($totals['min_duration_ms']) ? (int) $totals['min_duration_ms'] : null,
             maxDurationMs: isset($totals['max_duration_ms']) ? (int) $totals['max_duration_ms'] : null,
+            throttled: (int) ($totals['responses_429'] ?? 0),
         );
     }
 
@@ -105,6 +109,7 @@ final readonly class UsageSummary
             'average_duration_ms' => $this->averageDurationMs,
             'min_duration_ms' => $this->minDurationMs,
             'max_duration_ms' => $this->maxDurationMs,
+            'throttled' => $this->throttled,
             'error_rate' => $this->errorRate(),
         ];
     }

@@ -19,7 +19,7 @@ class ConsolidateMonthlyApiUsage extends Command
      * @var string
      */
     protected $signature = 'api-usage:consolidate-monthly
-        {--month= : UTC month (Y-m), defaults to previous month}';
+        {--month= : Month (Y-m) in the application timezone, defaults to previous month}';
 
     /**
      * The console command description.
@@ -114,7 +114,7 @@ class ConsolidateMonthlyApiUsage extends Command
         $monthOption = $this->option('month');
 
         if ($monthOption === null || (string) $monthOption === '') {
-            return CarbonImmutable::now('UTC')->subMonthNoOverflow()->startOfMonth();
+            return CarbonImmutable::now(UsageConfig::timezone())->subMonthNoOverflow()->startOfMonth();
         }
 
         $monthString = (string) $monthOption;
@@ -124,13 +124,13 @@ class ConsolidateMonthlyApiUsage extends Command
         }
 
         try {
-            $monthStart = CarbonImmutable::createFromFormat('!Y-m', $monthString, 'UTC');
+            $monthStart = CarbonImmutable::createFromFormat('!Y-m', $monthString, UsageConfig::timezone());
         } catch (\Throwable) {
-            throw new InvalidArgumentException('Invalid --month value. Expected a real UTC month in Y-m format.');
+            throw new InvalidArgumentException('Invalid --month value. Expected a real month in Y-m format.');
         }
 
         if ($monthStart->format('Y-m') !== $monthString) {
-            throw new InvalidArgumentException('Invalid --month value. Expected a real UTC month in Y-m format.');
+            throw new InvalidArgumentException('Invalid --month value. Expected a real month in Y-m format.');
         }
 
         return $monthStart->startOfMonth();

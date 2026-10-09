@@ -1,3 +1,13 @@
+## [1.3.0](https://github.com/systemverk/laravel-api-usage/compare/v1.2.0...v1.3.0) (2026-10-05)
+
+### ✨ Features
+
+* Enhance endpoint resolution and Redis buffer handling with unmatched requests support ([ffaec4c](https://github.com/systemverk/laravel-api-usage/commit/ffaec4c973ce2aed9846210fda13ed0c6e5efb01))
+
+### 🐛 Bug Fixes
+
+* Refactor request timestamp handling in RecordApiUsage middleware ([acba60b](https://github.com/systemverk/laravel-api-usage/commit/acba60b8e96bb8e73a41484222b84917ebad8a97))
+
 ## [1.2.0](https://github.com/systemverk/laravel-api-usage/compare/v1.1.0...v1.2.0) (2026-10-04)
 
 ### ✨ Features
